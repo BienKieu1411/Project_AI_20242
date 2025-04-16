@@ -11,7 +11,7 @@ def astar(adj_list, source, destination, num_iterations):
         x1, y1 = node1
         x2, y2 = node2
         return (x1 - x2) ** 2 + (y1 - y2) ** 2
-               # omitted sqrt to save on time and space complexity since we dont need an actual distance
+               # omitted sqrt to save on time and space complexity since we don`t need an actual distance
                # math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
 
     # read node coordinates from nodes.csv
@@ -79,4 +79,5 @@ def astar(adj_list, source, destination, num_iterations):
                 parent[neighbor] = current_node
 
     # return list of explored nodes after N number of iterations (if path was not found)
+    print(list(explored_nodes))
     return list(explored_nodes)
