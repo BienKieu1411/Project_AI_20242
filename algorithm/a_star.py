@@ -1,82 +1,89 @@
-# MaxieLife
-
 import heapq
-# import math
 import csv
+from typing import Dict, List, Tuple, Optional
 
-nodes_file = "data/fileCSV/nodes.csv"
-def astar(adj_list, source, destination, num_iterations):
-    def euclidean_distance(node1, node2):
-        # euclidean heuristic
-        x1, y1 = node1
-        x2, y2 = node2
-        return (x1 - x2) ** 2 + (y1 - y2) ** 2
-               # omitted sqrt to save on time and space complexity since we dont need an actual distance
-               # math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
+nodes_file = "data/fileCsv/nodes.csv"
 
-    # read node coordinates from nodes.csv
-    node_coordinates = {}
-    with open(nodes_file, newline='') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            node_id = int(row['node_id'])
-            x, y = float(row['x']), float(row['y'])
-            node_coordinates[node_id] = (x, y)
+def astar(adj_list: Dict[int, Dict[int, float]], 
+          source: int, 
+          destination: int,
+          num_iterations: int = 10000
+          ) -> Tuple[Optional[List[int]], List[int], Optional[float]]:
 
-    # priority queue for open list
-    open_list = []
+    node_coordinates: Dict[int, Tuple[float, float]] = {}
+    try:
+        with open(nodes_file, newline='', encoding='utf-8') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                try:
+                    node_id = int(row['node_id'])
+                    x, y = float(row['x']), float(row['y']) 
+                    node_coordinates[node_id] = (x, y)
+                except ValueError:
+                    continue
+    except FileNotFoundError:
+        print(f"LỖI (A*): Không tìm thấy file tọa độ node: {nodes_file}")
+        return None, [], None
+    except Exception as e:
+        print(f"LỖI (A*): Không thể đọc file tọa độ node {nodes_file}: {e}")
+        return None, [], None
 
-    # set to store explored nodes
-    explored_nodes = set()
-    list_explored_nodes = []
-    # dictionary to store parent info
-    parent = {}
+    def euclidean_heuristic(node1_id: int, node2_id: int) -> float:
+        if node1_id not in node_coordinates or node2_id not in node_coordinates:
+            return float('inf')
+        coord1 = node_coordinates[node1_id]
+        coord2 = node_coordinates[node2_id]
+        return ((coord1[0] - coord2[0])**2 + (coord1[1] - coord2[1])**2)**0.5
 
-    # dictionary to store g-values
-    g_values = {node: float('inf') for node in adj_list}
+    open_list: List[Tuple[float, int]] = []
+    heapq.heappush(open_list, (euclidean_heuristic(source, destination), source))
 
-    # initialize starting node
-    g_values[source] = 0
-    f_value = g_values[source] + euclidean_distance(node_coordinates[source], node_coordinates[destination])
+    came_from: Dict[int, Optional[int]] = {source: None}
+    
+    all_potential_nodes = set(adj_list.keys())
+    all_potential_nodes.add(source)
+    all_potential_nodes.add(destination)
+    g_score = {node_id: float('inf') for node_id in all_potential_nodes}
+    g_score[source] = 0.0
+    
+    f_score: Dict[int, float] = {node_id: float('inf') for node_id in all_potential_nodes}
+    f_score[source] = euclidean_heuristic(source, destination)
 
-    # add starting node to open list
-    heapq.heappush(open_list, (f_value, source))
+    explored_order: List[int] = []
+    iterations_count = 0
 
-    iterations = 0
+    while open_list and iterations_count < num_iterations:
+        iterations_count += 1
+        current_f_score, current_node = heapq.heappop(open_list)
 
-    while open_list and iterations < num_iterations * 150:
-        iterations += 1
+        if current_f_score > f_score.get(current_node, float('inf')):
+            continue
 
-        # pop node with the smallest f-value from open list
-        current_f, current_node = heapq.heappop(open_list)
+        explored_order.append(current_node)
 
-        # mark the current node as explored
-        list_explored_nodes.append(current_node)
-        explored_nodes = set(list_explored_nodes)
-        # if destination is reached, reconstruct and return path
         if current_node == destination:
-            path = [destination]
-            while destination in parent:
-                destination = parent[destination]
-                path.append(destination)
-            return path[::-1] , list_explored_nodes
+            path: List[int] = []
+            temp: Optional[int] = destination
+            while temp is not None:
+                path.append(temp)
+                temp = came_from.get(temp)
+            if not path or path[-1] != source:
+                if source == destination and g_score.get(source) == 0.0:
+                    return [source], explored_order, 0.0
+                return None, explored_order, None
+            return path[::-1], explored_order, g_score[destination]
 
-        # explore neighbors of the current node
+        if current_node not in adj_list:
+            continue
+
         for neighbor, weight in adj_list[current_node].items():
-            # calculate tentative g-value
-            tentative_g = g_values[current_node] + euclidean_distance(node_coordinates[neighbor], node_coordinates[destination])
+            if neighbor not in g_score:
+                continue
+            tentative_g_score = g_score.get(current_node, float('inf')) + weight
+            if tentative_g_score < g_score.get(neighbor, float('inf')):
+                came_from[neighbor] = current_node
+                g_score[neighbor] = tentative_g_score
+                f_score[neighbor] = tentative_g_score + euclidean_heuristic(neighbor, destination)
+                heapq.heappush(open_list, (f_score[neighbor], neighbor))
 
-            # if the tentative g-value is better, update the information
-            if tentative_g < g_values[neighbor]:
-                g_values[neighbor] = tentative_g
-                f_value = tentative_g + euclidean_distance(node_coordinates[neighbor], node_coordinates[destination])
-
-                # add to open list if not already there
-                if neighbor not in explored_nodes:
-                    heapq.heappush(open_list, (f_value, neighbor))
-
-                # update parent information
-                parent[neighbor] = current_node
-
-    # return list of explored nodes after N number of iterations (if path was not found)
-    return list(explored_nodes)
+    return None, explored_order, None

@@ -1,46 +1,36 @@
 import heapq
-import csv
+from typing import Dict, List, Tuple, Optional, Set
 
-nodes_file = "data/fileCSV/nodes.csv"
+def uniform_cost_search(adj_list: Dict[int, Dict[int, float]], 
+                          source: int, 
+                          destination: int
+                          ) -> Tuple[Optional[List[int]], List[int], Optional[float]]:
+    priority_queue: List[Tuple[float, int, List[int]]] = []
+    heapq.heappush(priority_queue, (0.0, source, [source])) 
+    
+    visited_or_settled: Set[int] = set()
+    explored_order: List[int] = [] 
 
-def uniform_cost_search(adj_list, source, destination, num_iterations):
-    def euclidean_distance(n1, n2):
-        x1, y1 = n1
-        x2, y2 = n2
-        return ((x1 - x2)**2 + (y1 - y2)**2) ** 0.5
+    while priority_queue:
+        current_cost, current_vertex, path_to_current = heapq.heappop(priority_queue)
 
-    node_coords = {}
-    with open(nodes_file, newline='') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            nid = int(row['node_id'])
-            node_coords[nid] = (float(row['x']), float(row['y']))
-
-    open_list = []
-    heapq.heappush(open_list, (0, source))
-    parent = {}
-    explored_set = set()
-    list_explored = []
-
-    iterations = 0
-    while open_list and iterations < num_iterations * 150:
-        iterations += 1
-        cost, current = heapq.heappop(open_list)
-        if current in explored_set:
+        if current_vertex in visited_or_settled:
             continue
-        explored_set.add(current)
-        list_explored.append(current)
+        
+        visited_or_settled.add(current_vertex)
+        explored_order.append(current_vertex)
 
-        if current == destination:
-            path = [destination]
-            while path[-1] != source:
-                path.append(parent[path[-1]])
-            return path[::-1], list_explored
+        if current_vertex == destination:
+            return path_to_current, explored_order, current_cost 
 
-        for neighbor in adj_list[current]:
-            if neighbor not in explored_set:
-                parent[neighbor] = current
-                g = cost + euclidean_distance(node_coords[current], node_coords[neighbor])
-                heapq.heappush(open_list, (g, neighbor))
+        if current_vertex not in adj_list:
+            continue
 
-    return list_explored
+        for neighbor, weight in adj_list[current_vertex].items():
+            if neighbor not in visited_or_settled:
+                new_cost = current_cost + weight
+                new_path = list(path_to_current)
+                new_path.append(neighbor)
+                heapq.heappush(priority_queue, (new_cost, neighbor, new_path))
+            
+    return None, explored_order, None

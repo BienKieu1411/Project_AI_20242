@@ -890,60 +890,85 @@ function displayPathfindingError(errorMessage) {
 }
 
 function findAndDrawPath() {
-    fetch("http://127.0.0.1:5000/find_path", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            start: selectedPoints[0],
-            end: selectedPoints[1],
-            blocked_edges: blockedEdges,
-            algorithm: algorithm,
-            traffic_edges: trafficEdges,
-            traffic_level: trafficLevel,
-            flood_edges: floodEdges,
-            flood_level: floodLevel,
-            one_way_edges: oneWayEdges
-        }),
-    })
-    .then((res) => {
-        if (!res.ok) {
-            return res.json().then(errorData => {
-                let err = new Error(errorData.error || `Lỗi ${res.status}: Không thể xử lý yêu cầu.`);
-                err.data = errorData;
-                throw err;
-            });
-        }
-        return res.json();
-    })
-    .then((data) => {
-        if (data.path) {
-            console.log(
-                "Tìm thấy đường đi giữa 2 điểm " +
-                selectedPoints[0] +
-                " -> " +
-                selectedPoints[1] + (data.Cost ? ("\nChi phí đường đi: " + data.Cost) : "")
-            );
-            drawPath(data.path);
-        } else {
-            // Trường hợp server trả về 200 OK nhưng không có data.path (ít xảy ra nếu backend chuẩn)
-            displayPathfindingError(data.error || "Không tìm thấy đường đi.");
-        }
-    })
-    .catch((err) => {
-        console.error("Lỗi khi gọi API tìm đường:", err);
-        let errorMessage = "Không thể kết nối đến máy chủ hoặc có lỗi xảy ra.";
-        if (err && err.data && err.data.error) {
-            errorMessage = err.data.error;
-        } else if (err && err.message) {
-            // Kiểm tra xem có phải lỗi "Failed to fetch" không
-            if (err.message.toLowerCase().includes("failed to fetch")) {
-                errorMessage = "Không thể kết nối tới máy chủ (app.py chưa chạy hoặc có lỗi mạng).";
-            } else {
-                errorMessage = err.message;
-            }
-        }
-        displayPathfindingError(errorMessage);
-    });
+  if (selectedPoints.length < 2) {
+      console.warn("Cần chọn đủ 2 điểm để tìm đường.");
+      // Có thể hiển thị thông báo cho người dùng ở đây nếu muốn
+      return;
+  }
+
+  const startNode = selectedPoints[0];
+  const endNode = selectedPoints[1];
+  const selectedAlgorithm = algorithmSelect ? algorithmSelect.value : "Dijkstra"; // Lấy thuật toán hiện tại
+
+  // Lấy các giá trị hệ số từ UI (nếu có)
+  const currentTrafficLevel = document.getElementById("trafficLevel") ? parseInt(document.getElementById("trafficLevel").value) : 1;
+  const currentFloodLevel = document.getElementById("floodLevel") ? parseInt(document.getElementById("floodLevel").value) : 1;
+  const maxDepthForIDDFS = 20; // Giá trị mặc định hoặc lấy từ UI nếu có
+  const iterationsForAStar = 10000; // Giá trị mặc định hoặc lấy từ UI nếu có
+
+
+  console.log(`Tìm đường từ ${startNode} đến ${endNode} bằng ${selectedAlgorithm}`);
+
+  // Xóa đường cũ (nếu có) trước khi gửi yêu cầu mới
+  map.eachLayer(function (layer) {
+      if (layer.options && layer.options.id === 'path-polyline-guest') {
+          map.removeLayer(layer);
+      }
+  });
+
+  fetch("http://127.0.0.1:5000/find_path", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+          start: startNode,
+          end: endNode,
+          algorithm: selectedAlgorithm,
+          blocked_edges: typeof blockedEdges !== 'undefined' ? blockedEdges : [],
+          traffic_edges: typeof trafficEdges !== 'undefined' ? trafficEdges : [],
+          traffic_level: currentTrafficLevel,
+          flood_edges: typeof floodEdges !== 'undefined' ? floodEdges : [],
+          flood_level: currentFloodLevel,
+          one_way_edges: typeof oneWayEdges !== 'undefined' ? oneWayEdges : [],
+          max_depth_iddfs: maxDepthForIDDFS, // Gửi cho IDDFS
+          iterations: iterationsForAStar     // Gửi cho A*
+      }),
+  })
+  .then((res) => {
+      if (!res.ok) {
+          return res.json().then(errorData => {
+              let err = new Error(errorData.error || `Lỗi ${res.status} từ server.`);
+              err.data = errorData; 
+              throw err;
+          });
+      }
+      return res.json();
+  })
+  .then((data) => {
+      if (data.path && data.path.length > 0) {
+          console.log("Đường đi nhận được:", data.path);
+          console.log("Thời gian ước tính (cost_with_factors):", data.cost_with_factors);
+          console.log("Quãng đường thực tế (real_distance):", data.real_distance);
+          
+          drawPath(data.path, data.cost_with_factors, data.real_distance, selectedAlgorithm);
+          
+          // Tùy chọn: Hiển thị các node đã duyệt (data.explored_nodes)
+          // Ví dụ: drawExploredNodes(data.explored_nodes);
+      } else {
+          displayPathfindingError(data.error || "Không tìm thấy đường đi phù hợp.");
+      }
+  })
+  .catch((err) => {
+      console.error("Lỗi trong findAndDrawPath:", err);
+      let errorMessage = "Không thể kết nối đến máy chủ hoặc có lỗi không xác định.";
+      if (err && err.data && err.data.error) {
+          errorMessage = err.data.error;
+      } else if (err && err.message) {
+          errorMessage = err.message.toLowerCase().includes("failed to fetch") ? 
+                         "Không thể kết nối tới máy chủ (app.py chưa chạy hoặc có lỗi mạng)." : 
+                         err.message;
+      }
+      displayPathfindingError(errorMessage);
+  });
 }
 // ----------------------------------- Xử lý thuật toán ------------------------------
 // Trong main.js (khoảng dòng 450 hoặc gần đó)
@@ -1423,22 +1448,10 @@ function resetMapWithGuest() {
   // Đóng tất cả popup đang mở 
   map.closePopup();
   map.eachLayer(function (layer) {
-      if (
-          (layer instanceof L.Polyline && layer.options.color === "green") ||
-          (layer instanceof L.CircleMarker && layer.options.color === "green")
-      ) {
-          map.removeLayer(layer);
-      }
-      // Cẩn thận khi xóa circleMarker, tránh xóa của admin
-      if (layer instanceof L.CircleMarker && ["yellow", "blue", "red"].includes(layer.options.color) ) {
-          // Đây là cách đơn giản, có thể cần logic phức tạp hơn để không xóa nhầm
-          // Ví dụ: kiểm tra xem marker có phải là phần của obstacleMarkers không
-          let isObstaclePt = obstacleMarkers.some(om => om[0] === layer);
-          if(!isObstaclePt) {
-              // map.removeLayer(layer); // Tạm thời comment để tránh xóa nhầm
-          }
-      }
-  });
+    if (layer.options && layer.options.id === 'path-polyline-guest') {
+        map.removeLayer(layer);
+    }
+});
     // Xóa nội dung ô tìm kiếm
     if (typeof placeSearchInput !== 'undefined' && placeSearchInput) {
       placeSearchInput.value = '';
@@ -1584,17 +1597,84 @@ function segmentsIntersect(p1, p2, q1, q2, epsilon) {
   return distance <= epsilon;
 }
 
-function drawPath(path) {
-  const latlngs = path.map((id) => {
-    const node = nodes.find((n) => n.node_id === id);
-    return [node.lat, node.lon];
-  });
+function drawPath(pathNodeIds, costWithFactors, realDistance, algorithmUsed) {
+  if (!pathNodeIds || pathNodeIds.length < 2) {
+      console.warn("drawPath: Đường đi không hợp lệ hoặc không đủ điểm để vẽ.");
+      return;
+  }
+
+  const latlngs = pathNodeIds.map((id) => {
+      const node = nodes.find((n) => n.node_id === id);
+      if (!node) {
+          console.warn(`drawPath: Không tìm thấy thông tin cho node ID: ${id}`);
+          return null; 
+      }
+      return [node.lat, node.lon];
+  }).filter(p => p !== null); 
+
+  if (latlngs.length < 2) {
+      console.warn("drawPath: Không đủ điểm hợp lệ để vẽ đường đi.");
+      return;
+  }
+
+  let popupContent = `<div class="path-info-popup-content">`;
+  popupContent += `<b><i class="fas fa-route" style="margin-right: 5px;"></i>Thông tin lộ trình</b>`;
+  
+  // Hiển thị Thời gian di chuyển ước tính (cost_with_factors)
+  // Áp dụng định dạng thời gian cho tất cả thuật toán
+  if (costWithFactors !== undefined && costWithFactors !== null && costWithFactors !== Infinity) {
+      let formattedCost = "";
+      // Giả định costWithFactors từ backend là một giá trị số (có thể là giây hoặc một đơn vị chi phí tương đương)
+      // Nếu giá trị rất lớn, có thể hiển thị dưới dạng đơn vị lớn hơn hoặc "chi phí" chung.
+      if (costWithFactors >= 3600) { // Nếu lớn hơn hoặc bằng 1 giờ (3600 giây)
+          const hours = Math.floor(costWithFactors / 3600);
+          const minutes = Math.floor((costWithFactors % 3600) / 60);
+          formattedCost = `${hours} giờ ${minutes} phút`;
+      } else if (costWithFactors >= 60) { // Nếu lớn hơn hoặc bằng 1 phút (60 giây)
+          const minutes = Math.floor(costWithFactors / 60);
+          const seconds = Math.round(costWithFactors % 60);
+          formattedCost = `${minutes} phút ${seconds} giây`;
+      } else if (costWithFactors > 0) { // Nếu nhỏ hơn 1 phút
+          formattedCost = `${costWithFactors.toFixed(0)} giây`; 
+      } else if (costWithFactors === 0) {
+          formattedCost = `Không đáng kể`;
+      } else { // Trường hợp giá trị âm hoặc không xác định khác
+          formattedCost = `Không xác định`;
+      }
+      popupContent += `<br><i class="fas fa-stopwatch" style="margin-right: 5px;"></i>Thời gian ước tính: ${formattedCost}`;
+  } else {
+      popupContent += `<br><i class="fas fa-stopwatch" style="margin-right: 5px;"></i>Thời gian ước tính: Không có`;
+  }
+
+  // Hiển thị Quãng đường thực tế (realDistance)
+  if (realDistance !== undefined && realDistance !== null && realDistance !== Infinity) {
+      let formattedDistance = "";
+      if (realDistance >= 1000) { 
+          formattedDistance = (realDistance / 1000).toFixed(2) + " km";
+      } else if (realDistance >= 0) { 
+          formattedDistance = realDistance.toFixed(0) + " m";
+      } else {
+          formattedDistance = "Không xác định";
+      }
+      popupContent += `<br><i class="fas fa-ruler-combined" style="margin-right: 5px;"></i>Quãng đường thực tế: ${formattedDistance}`;
+  } else {
+       popupContent += `<br><i class="fas fa-ruler-combined" style="margin-right: 5px;"></i>Quãng đường thực tế: Không có`;
+  }
+  popupContent += `<br><i class="fas fa-tachometer-alt" style="margin-right: 5px;"></i>Vận tốc trung bình: 15 km/h`;
+  popupContent += `</div>`;
 
   L.polyline(latlngs, {
-    color: "green",
-    weight: 3,
-    opacity: 0.8,
-  }).addTo(map);
+      color: "#28a745", 
+      weight: 6,      
+      opacity: 0.85,
+      id: 'path-polyline-guest', 
+      className: 'path-guest-route' 
+  }).bindPopup(popupContent, { 
+      className: 'synced-leaflet-popup path-info-leaflet-popup',
+      // Giữ autoClose và closeOnClick là true (mặc định) để popup có thể tự đóng
+      // autoClose: true, 
+      // closeOnClick: true 
+  }).addTo(map).openPopup();
 }
 
 function distanceToLine(point, lineStart, lineEnd) {

@@ -1,53 +1,67 @@
-from typing import Dict
-# input: a dictionary, source, destination, and integer num_of_iterations
-# output: dict or list of nodes explored after n iterations or if destination reached, then return path to destination with all the explored nodes
+import heapq
+from typing import Dict, List, Tuple, Optional, Set 
 
-def dijkstra(adj_list: Dict[int, Dict[int, float]], source: int, destination: int, num_of_iterations: int):
-    explored_nodes = [] # List to keep track of explored nodes
+def dijkstra(adj_list: Dict[int, Dict[int, float]], 
+             source: int, 
+             destination: int
+             ) -> Tuple[Optional[List[int]], List[int], Optional[float]]:
+    
+    priority_queue: List[Tuple[float, int]] = []
+    heapq.heappush(priority_queue, (0.0, source))
+    
+    all_nodes_in_graph: Set[int] = set(adj_list.keys())
+    all_nodes_in_graph.add(source)
+    all_nodes_in_graph.add(destination)
+    for node_id in adj_list:
+        all_nodes_in_graph.update(adj_list[node_id].keys())
 
-    visited = {}
-    remaining = set()
-    distances = {}
-    predecessors = {}
+    distances: Dict[int, float] = {node: float('inf') for node in all_nodes_in_graph}
+    distances[source] = 0.0 
+    
+    predecessors: Dict[int, Optional[int]] = {node: None for node in all_nodes_in_graph}
+    
+    explored_order: List[int] = [] 
 
-    for vertex in adj_list.keys():
-        distances[vertex] = float('inf')  # Set initial distance to infinity for all nodes
-        remaining.add(vertex)  # Add all nodes to the set of remaining nodes
-        visited[vertex] = False  # Mark all nodes as not visited
-        predecessors[vertex] = None  # Set initial predecessor to None for all nodes
+    while priority_queue:
+        current_distance, current_vertex = heapq.heappop(priority_queue)
+        
+        if current_distance > distances.get(current_vertex, float('inf')):
+            continue
 
-    distances[source] = 0.0
+        if current_vertex not in explored_order:
+             explored_order.append(current_vertex)
 
-    for _ in range(num_of_iterations * 100):
-        # Find the vertex with the smallest distance in the remaining set
-        current_vertex = min(remaining, key=lambda x: distances[x])
-
-        visited[current_vertex] = True
-        remaining.remove(current_vertex)
-        explored_nodes.append(current_vertex)
-
-        # If the destination is reached, return the shortest path
         if current_vertex == destination:
-            path = [destination]
-            while predecessors[path[-1]] != source:
-                path.append(predecessors[path[-1]])
-            path.append(source)
-            return path[::-1] , explored_nodes  # Return the path and the list of explored nodes
+            if distances[destination] == float('inf'):
+                return None, explored_order, None
 
-        # Update distances and predecessors for neighbors of the current vertex
-        for neighbor in adj_list[current_vertex].keys():
-            new_distance = distances[current_vertex] + adj_list[current_vertex][neighbor]
+            path: List[int] = []
+            temp_node: Optional[int] = destination
+            while temp_node is not None:
+                path.append(temp_node)
+                if temp_node == source:
+                    break
+                temp_node = predecessors.get(temp_node)
+                if temp_node is None and path[-1] != source:
+                    return None, explored_order, None
+            
+            if not path or path[-1] != source:
+                 if source == destination:
+                     return [source], explored_order, 0.0
+                 return None, explored_order, None
 
-            # Check if the new distance is smaller than the current distance
-            if new_distance < distances[neighbor]:
-                distances[neighbor] = new_distance
-                predecessors[neighbor] = current_vertex
+            return path[::-1], explored_order, distances[destination]
 
-    return explored_nodes  # Return the list of explored nodes if the destination is not reached
+        if current_vertex in adj_list:
+            for neighbor, weight in adj_list[current_vertex].items():
+                if neighbor not in distances:
+                    continue
 
-
-
-
-
-
-
+                distance_through_current = current_distance + weight
+                
+                if distance_through_current < distances[neighbor]:
+                    distances[neighbor] = distance_through_current
+                    predecessors[neighbor] = current_vertex
+                    heapq.heappush(priority_queue, (distance_through_current, neighbor))
+            
+    return None, explored_order, None

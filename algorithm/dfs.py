@@ -1,34 +1,49 @@
-from typing import Dict
+from typing import Dict, List, Tuple, Optional, Set
 
-def dfs(adj_list: Dict[int, Dict[int, float]], source: int, destination: int, num_of_iterations: int):
-    stack = [source]         # Stack for DFS traversal
-    visited = set()          # Set to track visited nodes
-    parent = {}              # Dictionary to reconstruct the path
-    explored_nodes = []      # List to store the order of explored nodes
+def _calculate_path_cost(adj_list: Dict[int, Dict[int, float]], path: List[int]) -> Optional[float]:
+    if not path or len(path) < 2:
+        return 0.0 
 
-    iterations = 0
+    total_cost = 0.0
+    for i in range(len(path) - 1):
+        u, v = path[i], path[i+1]
+        if u in adj_list and v in adj_list.get(u, {}): 
+            edge_weight = adj_list[u].get(v) 
+            if edge_weight is None: 
+                return float('inf') 
+            total_cost += edge_weight
+        else:
+            return float('inf') 
+    return total_cost
 
-    while stack and iterations < num_of_iterations * 150:
-        iterations += 1
-        current = stack.pop()  # Get the next node from the top of the stack
+def dfs(adj_list: Dict[int, Dict[int, float]], 
+        source: int, 
+        destination: int
+        ) -> Tuple[Optional[List[int]], List[int], Optional[float]]:
 
-        if current in visited:
+    stack: List[Tuple[int, List[int]]] = []
+    stack.append((source, [source]))
+    explored_order: List[int] = []
+    visited_nodes_fully_explored: Set[int] = set()
+
+    while stack:
+        current_vertex, path_to_current = stack.pop()
+
+        if current_vertex not in explored_order:
+             explored_order.append(current_vertex)
+
+        if current_vertex == destination:
+            cost_on_adj_list = _calculate_path_cost(adj_list, path_to_current)
+            return path_to_current, explored_order, cost_on_adj_list
+
+        if current_vertex not in adj_list:
             continue
-
-        explored_nodes.append(current)
-        visited.add(current)
-
-        if current == destination:
-            # Reconstruct path from destination back to source
-            path = [destination]
-            while path[-1] != source:
-                path.append(parent[path[-1]])
-            return path[::-1], explored_nodes  # Return path and explored list
-
-        # Reverse neighbors to maintain left-to-right order in DFS
-        for neighbor in reversed(list(adj_list[current].keys())):
-            if neighbor not in visited:
-                parent[neighbor] = current
-                stack.append(neighbor)
-
-    return explored_nodes  # If no path is found, return only explored nodes
+            
+        sorted_neighbors = sorted(list(adj_list[current_vertex].keys()), reverse=True)
+        for neighbor in sorted_neighbors:
+            if neighbor not in path_to_current:
+                new_path = list(path_to_current)
+                new_path.append(neighbor)
+                stack.append((neighbor, new_path))
+    
+    return None, explored_order, None

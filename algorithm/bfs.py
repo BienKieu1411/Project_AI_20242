@@ -1,31 +1,47 @@
-from typing import Dict, List
 from collections import deque
+from typing import Dict, List, Tuple, Optional, Set
 
-def bfs(adj_list: Dict[int, Dict[int, float]], source: int, destination: int, num_of_iterations: int):
-    queue = deque([source])  # Queue for BFS traversal
-    visited = set()          # Set to track visited nodes
-    parent = {}              # Dictionary to reconstruct the path
-    explored_nodes = []      # List to store the order of explored nodes
+def _calculate_path_cost(adj_list: Dict[int, Dict[int, float]], path: List[int]) -> Optional[float]:
+    if not path or len(path) < 2:
+        return 0.0 
 
-    iterations = 0
+    total_cost = 0.0
+    for i in range(len(path) - 1):
+        u, v = path[i], path[i+1]
+        if u in adj_list and v in adj_list.get(u, {}): 
+            edge_weight = adj_list[u].get(v)
+            if edge_weight is None: 
+                return float('inf') 
+            total_cost += edge_weight
+        else:
+            return float('inf') 
+    return total_cost
 
-    while queue and iterations < num_of_iterations * 150:
-        iterations += 1
-        current = queue.popleft()  # Get the next node in the queue
-        explored_nodes.append(current)
-        visited.add(current)
+def bfs(adj_list: Dict[int, Dict[int, float]], 
+        source: int, 
+        destination: int
+        ) -> Tuple[Optional[List[int]], List[int], Optional[float]]:
 
-        if current == destination:
-            # Reconstruct path from destination back to source
-            path = [destination]
-            while path[-1] != source:
-                path.append(parent[path[-1]])
-            return path[::-1], explored_nodes  # Return path and explored list
+    queue: deque[Tuple[int, List[int]]] = deque([(source, [source])])  
+    visited_nodes: Set[int] = {source}  
+    explored_order: List[int] = [] 
 
-        # Explore all unvisited neighbors
-        for neighbor in adj_list[current]:
-            if neighbor not in visited and neighbor not in queue:
-                parent[neighbor] = current
-                queue.append(neighbor)
+    while queue:
+        current_vertex, path_to_current = queue.popleft()
+        explored_order.append(current_vertex)
 
-    return explored_nodes  # If no path is found, return only explored nodes
+        if current_vertex == destination:
+            cost_on_adj_list = _calculate_path_cost(adj_list, path_to_current)
+            return path_to_current, explored_order, cost_on_adj_list
+
+        if current_vertex not in adj_list:
+            continue
+
+        for neighbor in adj_list[current_vertex].keys():
+            if neighbor not in visited_nodes:
+                visited_nodes.add(neighbor)
+                new_path = list(path_to_current)
+                new_path.append(neighbor)
+                queue.append((neighbor, new_path))
+    
+    return None, explored_order, None
