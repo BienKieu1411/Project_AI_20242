@@ -887,6 +887,9 @@ function displayPathfindingError(errorMessage) {
         .setLatLng(popupLocation)
         .setContent(`<b>Không tìm thấy đường đi</b>`)
         .openOn(map);
+    setTimeout(() => {
+          errorPopup.remove();
+      }, 3000);
 }
 
 function findAndDrawPath() {
@@ -903,7 +906,7 @@ function findAndDrawPath() {
   // Lấy các giá trị hệ số từ UI (nếu có)
   const currentTrafficLevel = document.getElementById("trafficLevel") ? parseInt(document.getElementById("trafficLevel").value) : 1;
   const currentFloodLevel = document.getElementById("floodLevel") ? parseInt(document.getElementById("floodLevel").value) : 1;
-  const maxDepthForIDDFS = 20; // Giá trị mặc định hoặc lấy từ UI nếu có
+  const maxDepthForIDDFS = 10000; // Giá trị mặc định hoặc lấy từ UI nếu có
   const iterationsForAStar = 10000; // Giá trị mặc định hoặc lấy từ UI nếu có
 
 
@@ -1658,7 +1661,7 @@ function drawPath(pathNodeIds, costWithFactors, realDistance, algorithmUsed) {
       }
       popupContent += `<br><i class="fas fa-ruler-combined" style="margin-right: 5px;"></i>Quãng đường thực tế: ${formattedDistance}`;
   } else {
-       popupContent += `<br><i class="fas fa-ruler-combined" style="margin-right: 5px;"></i>Quãng đường thực tế: Không có`;
+      popupContent += `<br><i class="fas fa-ruler-combined" style="margin-right: 5px;"></i>Quãng đường thực tế: Không có`;
   }
   popupContent += `<br><i class="fas fa-tachometer-alt" style="margin-right: 5px;"></i>Vận tốc trung bình: 15 km/h`;
   popupContent += `</div>`;
@@ -1671,9 +1674,8 @@ function drawPath(pathNodeIds, costWithFactors, realDistance, algorithmUsed) {
       className: 'path-guest-route' 
   }).bindPopup(popupContent, { 
       className: 'synced-leaflet-popup path-info-leaflet-popup',
-      // Giữ autoClose và closeOnClick là true (mặc định) để popup có thể tự đóng
-      // autoClose: true, 
-      // closeOnClick: true 
+      closeOnClick: false,   
+      autoClose: false
   }).addTo(map).openPopup();
 }
 
@@ -2336,12 +2338,11 @@ document.addEventListener('DOMContentLoaded', function () {
         collapsibleTriggers.forEach(trigger => {
             if (trigger !== currentTrigger || trigger.classList.contains('active')) {
                 const content = trigger.nextElementSibling;
-                  if (content && content.style.display !== "none") { // Chỉ đóng nếu đang mở
+                  if (content && content.style.display !== "none") { 
                     trigger.classList.remove('active');
                     content.style.display = "none";
                 }
             }
         });
     }
-
 });

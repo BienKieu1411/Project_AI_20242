@@ -18,13 +18,10 @@ from algorithm.uniform_cost_search import uniform_cost_search
 app = Flask(__name__)
 CORS(app)
 
-# --- Cấu hình và Đồ thị gốc ---
 adj_dict_original: Dict[int, Dict[int, float]] = {}
 edges_file_original: str = 'data/fileCsv/adj_list_with_weights.csv'
 
-# VẬN TỐC MẶC ĐỊNH (mét trên giây)
-DEFAULT_SPEED_MPS: float = 4.17  # (Khoảng 40 km/h)
-# Bạn có thể điều chỉnh giá trị này hoặc thậm chí làm cho nó linh hoạt hơn sau này (ví dụ: dựa trên loại đường)
+DEFAULT_SPEED_MPS: float = 4.17  
 
 try:
     with open(edges_file_original, 'r', encoding='utf-8') as f:
@@ -52,7 +49,7 @@ try:
                     if cleaned_neighbors_str.startswith('[') and cleaned_neighbors_str.endswith(']'):
                         parsed_data = ast.literal_eval(cleaned_neighbors_str)
                         if not isinstance(parsed_data, list):
-                             raise ValueError("Dữ liệu parse không phải là list")
+                            raise ValueError("Dữ liệu parse không phải là list")
                         for item in parsed_data:
                             if isinstance(item, (list, tuple)) and len(item) == 2:
                                 neighbor_id, weight = item # weight ở đây là KHOẢNG CÁCH
@@ -75,15 +72,12 @@ try:
                             except ValueError:
                                 continue 
                         for neighbor_id, weight in temp_neighbors_list:
-                             neighbors[neighbor_id] = weight
+                            neighbors[neighbor_id] = weight
                 adj_dict_original[node] = neighbors
             except ValueError:
-                # print(f"Dòng {row_idx+2}: Lỗi xử lý dòng (ValueError): {row} - {ve_row}")
                 continue
             except Exception:
-                # print(f"Dòng {row_idx+2}: Lỗi không xác định khi xử lý dòng: {row} - {e_row}")
                 continue
-    # print(f"Đã đọc thành công {len(adj_dict_original)} nút từ {edges_file_original} vào adj_dict_original.")
     if not adj_dict_original:
         print("CẢNH BÁO: adj_dict_original rỗng sau khi đọc file. Kiểm tra lại file CSV và logic đọc file.")
 except FileNotFoundError:
@@ -98,12 +92,9 @@ def calculate_path_cost_on_graph(graph: Dict[int, Dict[int, float]], path: List[
         u, v = path[i], path[i+1]
         if u in graph and v in graph.get(u, {}): 
             edge_weight = graph[u].get(v)
-            if edge_weight is None: return float('inf') 
             total_cost += edge_weight
-        else: return float('inf') 
     return total_cost
 
-# --- API Endpoint ---
 @app.route('/find_path', methods=['POST'])
 def find_path():
     data = request.get_json()
@@ -120,7 +111,7 @@ def find_path():
     flood_edges = data.get('flood_edges', [])
     flood_level = int(data.get('flood_level', 1))
     one_way_edges = data.get('one_way_edges', [])
-    max_depth_iddfs = int(data.get('max_depth_iddfs', 20)) 
+    max_depth_iddfs = int(data.get('max_depth_iddfs', 10000)) 
     num_iterations_astar = int(data.get('iterations', 10000))
 
     if start_node_id is None or end_node_id is None:
@@ -140,26 +131,19 @@ def find_path():
     if start_node not in all_nodes_in_original_graph or end_node not in all_nodes_in_original_graph:
          return jsonify({"error": f"Node bắt đầu ({start_node}) hoặc kết thúc ({end_node}) không tồn tại trong dữ liệu đồ thị."}), 400
 
-    # ----- BƯỚC 1: Tạo adj_list_filtered với TRỌNG SỐ LÀ THỜI GIAN CƠ BẢN -----
     adj_list_filtered = {}
     for u, neighbors in adj_dict_original.items():
         adj_list_filtered[u] = {}
         for v, distance in neighbors.items():
-            if DEFAULT_SPEED_MPS > 0:
-                base_time_seconds = distance / DEFAULT_SPEED_MPS
-                adj_list_filtered[u][v] = base_time_seconds
-            else: # Tránh chia cho 0 nếu tốc độ không hợp lệ
-                adj_list_filtered[u][v] = float('inf') 
+            base_time_seconds = distance / DEFAULT_SPEED_MPS
+            adj_list_filtered[u][v] = base_time_seconds
     
-    # ----- BƯỚC 2: Áp dụng các điều kiện lên adj_list_filtered (trọng số giờ là thời gian) -----
-    # 2.1. Xử lý đường một chiều
     for one_way_edge in one_way_edges:
         if len(one_way_edge) == 2:
             source_ow, destination_ow = one_way_edge
             if destination_ow in adj_list_filtered and source_ow in adj_list_filtered.get(destination_ow, {}):
                 del adj_list_filtered[destination_ow][source_ow]
 
-    # 2.2. Xử lý cạnh bị cấm
     for edge in blocked_edges:
         if len(edge) == 2:
             u, v = edge
@@ -171,20 +155,19 @@ def find_path():
     is_direct_blocked = False
     for edge in blocked_edges: 
         if (edge[0] == start_node and edge[1] == end_node) or \
-           (edge[1] == start_node and edge[0] == end_node):
+            (edge[1] == start_node and edge[0] == end_node):
             is_direct_blocked = True
             break
     if is_direct_blocked:
-         return jsonify({"error": "Không thể tìm đường: Tuyến đường trực tiếp giữa điểm đầu và điểm cuối đã bị cấm."}), 400
+        return jsonify({"error": "Không thể tìm đường: Tuyến đường trực tiếp giữa điểm đầu và điểm cuối đã bị cấm."}), 400
 
-    # 2.3. Xử lý tắc đường (nhân THỜI GIAN với hệ số k)
     k = 1.0
     if traffic_level == 1: k = 1.75
     elif traffic_level == 2: k = 2.25
     elif traffic_level == 3: k = 2.75 
     
     if k != 1.0: 
-        for edge_nodes in traffic_edges: # Đổi tên biến để tránh nhầm lẫn với tuple (u,v)
+        for edge_nodes in traffic_edges:
             if len(edge_nodes) == 2:
                 u, v = edge_nodes
                 if u in adj_list_filtered and v in adj_list_filtered.get(u, {}):
@@ -192,7 +175,6 @@ def find_path():
                 if v in adj_list_filtered and u in adj_list_filtered.get(v, {}): 
                     adj_list_filtered[v][u] *= k
                 
-    # 2.4. Xử lý ngập lụt (nhân THỜI GIAN hoặc loại bỏ cạnh)
     f_factor = 1.0
     remove_edge_due_to_flood = False
     if flood_level == 1: f_factor = 2.25 
@@ -200,7 +182,7 @@ def find_path():
     elif flood_level == 3: remove_edge_due_to_flood = True 
 
     if remove_edge_due_to_flood or f_factor != 1.0:
-        for edge_nodes in flood_edges: # Đổi tên biến
+        for edge_nodes in flood_edges:
             if len(edge_nodes) == 2:
                 u, v = edge_nodes
                 if remove_edge_due_to_flood:
@@ -227,17 +209,15 @@ def find_path():
     path_finding_function = algorithms[algorithm_name]
     path_nodes: Optional[List[int]] = None
     explored_node_ids: List[int] = []
-    cost_with_factors: Optional[float] = None # Đây sẽ là THỜI GIAN ƯỚC TÍNH (giây)
+    cost_with_factors: Optional[float] = None 
 
     try:
-        # print(f"Gọi thuật toán: {algorithm_name} từ {start_node} đến {end_node}")
         if algorithm_name == 'Iterative Deepening DFS':
             path_nodes, explored_node_ids, cost_with_factors = path_finding_function(adj_list_filtered, start_node, end_node, max_depth=max_depth_iddfs)
         elif algorithm_name == 'A Star': 
-             path_nodes, explored_node_ids, cost_with_factors = path_finding_function(adj_list_filtered, start_node, end_node, num_iterations=num_iterations_astar)
+            path_nodes, explored_node_ids, cost_with_factors = path_finding_function(adj_list_filtered, start_node, end_node, num_iterations=num_iterations_astar)
         else:
             path_nodes, explored_node_ids, cost_with_factors = path_finding_function(adj_list_filtered, start_node, end_node)
-            
     except Exception as e_algo:
         print(f"Lỗi khi chạy thuật toán {algorithm_name} cho ({start_node} -> {end_node}): {e_algo}")
         import traceback
@@ -250,7 +230,6 @@ def find_path():
             "explored_nodes": list(set(explored_node_ids)) if explored_node_ids else [] 
             }), 404
 
-    # Tính toán quãng đường thực tế (real_distance) dựa trên adj_dict_original (luôn là khoảng cách)
     real_distance = calculate_path_cost_on_graph(adj_dict_original, path_nodes) 
     
     if real_distance == float('inf'): 
@@ -262,8 +241,8 @@ def find_path():
         "path": path_nodes,
         "explored_nodes": list(set(explored_node_ids)) if explored_node_ids else [], 
         "message": "Đường đi đã được tìm thấy.",
-        "cost_with_factors": cost_with_factors, # Đơn vị là giây
-        "real_distance": real_distance  # Đơn vị là mét (hoặc đơn vị gốc của weight)
+        "cost_with_factors": cost_with_factors, 
+        "real_distance": real_distance  
     })
 
 if __name__ == '__main__':
