@@ -94,6 +94,7 @@ loadTrucBachBoundary();
 const roleToggle = document.getElementById("roleToggle");
 const guestControls = document.getElementById("guestControls");
 const adminControls = document.getElementById("adminControls");
+const appHeader = document.getElementById('appHeader'); 
 
 // ------------------------- Xử lý đổi giao diện theme -------------------------
 document
@@ -147,6 +148,23 @@ roleToggle.addEventListener("change", function () {
   // Toggle hiển thị control
   guestControls.classList.toggle("hide", isChecked);
   adminControls.classList.toggle("show", isChecked);
+
+  if (appHeader) { // Kiểm tra xem appHeader có tồn tại không
+    if (isAdmin) {
+      appHeader.style.display = 'none'; // Ẩn thanh tìm kiếm khi là Admin
+      // Xóa kết quả tìm kiếm và marker tạm thời nếu chuyển sang Admin
+      if (searchResultsContainer) searchResultsContainer.innerHTML = '';
+      if (tempSearchMarker) {
+          map.removeLayer(tempSearchMarker);
+          tempSearchMarker = null;
+      }
+      if(placeSearchInput) placeSearchInput.value = '';
+
+    } else {
+      appHeader.style.display = 'flex'; // Hiện lại thanh tìm kiếm khi là Guest
+                                        // (hoặc 'block' tùy theo cách bạn muốn nó hiển thị)
+    }
+  }
 
   if (isAdmin) {
     resetMapWithGuest(); // Reset bản đồ khi sang Admin
@@ -274,7 +292,329 @@ function isPointInPolygon(point, polygonVertices) {
   }
   return inside;
 }
-// Xử lý click trên bản đồ
+
+/**
+ * Cập nhật popup của marker với thông tin địa điểm từ Nominatim API.
+ * Hiển thị tên ngắn gọn ban đầu, và cho phép người dùng click để xem chi tiết đầy đủ.
+ * @param {L.Marker} marker 
+ * @param {number} lat 
+ * @param {number} lon 
+ * @param {string} title 
+ */
+async function updateMarkerPopupWithGeocoding(marker, lat, lon, title) {
+  if (!marker) return;
+
+  if (!marker.customData) {
+      marker.customData = {
+          initialName: "(Đang tải...)",
+          fullName: null,
+          initialNameFetched: false,
+          detailFetched: false,
+          isFetchingInitial: false,
+          isFetchingDetail: false
+      };
+  }
+  const cData = marker.customData;
+
+  // Tạo nội dung popup HTML
+  const generatePopupHtml = () => {
+      let nameToDisplay = cData.initialName;
+      if (cData.detailFetched && cData.fullName) {
+          nameToDisplay = cData.fullName;
+      }
+
+      let html = `<b>${title}</b><br><div>Tên: ${nameToDisplay}</div>`;
+      if (cData.initialNameFetched && !cData.detailFetched && !cData.isFetchingDetail && !cData.initialName.startsWith("(Lỗi")) {
+          html += `<div><a href="#" class="expand-details-link" style="color: var(--primary); text-decoration: underline;">Xem chi tiết</a></div>`;
+      } else if (cData.isFetchingDetail) {
+          html += `<div><i>Đang tải chi tiết...</i></div>`;
+      }
+      return html;
+  };
+
+  // Gắn listener sau khi popup được render (DOM ready)
+  const attachClickListenerToDetailLink = () => {
+      setTimeout(() => {
+          const popupElement = marker.getPopup()?.getElement();
+          if (!popupElement) return;
+
+          const detailLink = popupElement.querySelector('.expand-details-link');
+          if (detailLink && !detailLink.getAttribute('data-click-listener')) {
+              detailLink.setAttribute('data-click-listener', 'true');
+              detailLink.addEventListener('click', (event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  fetchFullNameAndRefreshPopup();
+              });
+          }
+      }, 50); // Delay ngắn để DOM popup chắc chắn render xong
+  };
+
+  // Tải tên đầy đủ khi click "Xem chi tiết"
+  const fetchFullNameAndRefreshPopup = async () => {
+      if (cData.detailFetched || cData.isFetchingDetail) return;
+      cData.isFetchingDetail = true;
+
+      marker.setPopupContent(generatePopupHtml());
+      marker.openPopup();
+      attachClickListenerToDetailLink();
+
+      try {
+          const response = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&accept-language=vi`
+          );
+          if (!response.ok) throw new Error(`Lỗi API (chi tiết): ${response.status}`);
+          const data = await response.json();
+          cData.fullName = data.display_name || "(Không có tên chi tiết)";
+      } catch (err) {
+          console.error("Lỗi tải tên chi tiết:", err);
+          cData.fullName = "";
+      } finally {
+          cData.isFetchingDetail = false;
+          cData.detailFetched = true;
+          marker.setPopupContent(generatePopupHtml());
+          marker.openPopup();
+          attachClickListenerToDetailLink();
+      }
+  };
+
+  // Tải tên ban đầu nếu chưa có
+  if (!cData.initialNameFetched && !cData.isFetchingInitial) {
+      cData.isFetchingInitial = true;
+      marker.setPopupContent(generatePopupHtml());
+      marker.openPopup();
+      attachClickListenerToDetailLink();
+
+      try {
+          const response = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=17&addressdetails=1&accept-language=vi`
+          );
+          if (!response.ok) throw new Error(`Lỗi API (ban đầu): ${response.status}`);
+          const data = await response.json();
+
+          if (data && data.display_name) {
+              const addr = data.address || {};
+              let nameParts = [];
+
+              if (addr.road) nameParts.push(addr.road);
+              if (addr.amenity) nameParts.push(addr.amenity);
+              if (addr.neighbourhood) nameParts.push(addr.neighbourhood);
+              else if (addr.suburb) nameParts.push(addr.suburb);
+              else if (addr.village) nameParts.push(addr.village);
+              if (nameParts.length === 0 && addr.quarter) nameParts.push(addr.quarter);
+              if (nameParts.length < 2 && addr.city_district && !nameParts.includes(addr.city_district)) {
+                  nameParts.push(addr.city_district);
+              }
+
+              cData.initialName = nameParts.length > 0
+                  ? nameParts.slice(0, 2).join(', ')
+                  : data.display_name.split(',').slice(0, 2).join(', ');
+          } else {
+              cData.initialName = "";
+          }
+      } catch (err) {
+          console.error("Lỗi tải tên ban đầu:", err);
+          cData.initialName = "";
+      } finally {
+          cData.isFetchingInitial = false;
+          cData.initialNameFetched = true;
+          marker.setPopupContent(generatePopupHtml());
+          marker.openPopup();
+          attachClickListenerToDetailLink();
+      }
+  } else {
+      marker.setPopupContent(generatePopupHtml());
+      marker.openPopup();
+      attachClickListenerToDetailLink();
+  }
+}
+
+// Hàm mới để xử lý logic chọn điểm sau khi có tọa độ
+function processMapSelection(lat, lng) {
+  console.log("processMapSelection called with lat:", lat, "lng:", lng); // DEBUG
+  const clickedLatLng = L.latLng(lat, lng); 
+  let closestNode = null;
+  let minDist = Infinity;
+  nodes.forEach((node) => {
+      const d = getDistance(lat, lng, node.lat, node.lon);
+      if (d < minDist) {
+          minDist = d;
+          closestNode = node;
+      }
+  });
+
+  if (!closestNode) {
+      console.warn("Không tìm thấy node nào gần vị trí đã chọn.");
+      map.closePopup();
+      L.popup({ className: 'error-leaflet-popup synced-leaflet-popup compact-point-popup' })
+        .setLatLng(clickedLatLng)
+        .setContent("<b>Lỗi:</b> Không tìm thấy nút giao thông nào gần vị trí này.")
+        .openOn(map);
+      return;
+  }
+  console.log("Closest node found:", closestNode); // DEBUG
+
+  if (selectedPoints.length === 0) {
+      console.log("Selecting start point:", closestNode.node_id); // DEBUG
+      selectedPoints.push(closestNode.node_id);
+      if (startPointMarker) map.removeLayer(startPointMarker);
+      startPointMarker = L.circleMarker([closestNode.lat, closestNode.lon], {
+          radius: 4, color: "green", fillColor: "green", fillOpacity: 0.7, pane: 'markerPane'
+      }).addTo(map)
+        .bindPopup(`<b>Điểm bắt đầu</b>`, { className: 'point-popup start-point-popup compact-point-popup', autoClose: false, closeOnClick: false })
+        .openPopup();
+      updateMarkerPopupWithGeocoding(startPointMarker, closestNode.lat, closestNode.lon, "Điểm bắt đầu");
+  } else if (selectedPoints.length === 1) {
+      if (selectedPoints[0] === closestNode.node_id) {
+          console.log("End point is same as start point."); // DEBUG
+          map.closePopup();
+          L.popup({ className: 'error-leaflet-popup synced-leaflet-popup compact-point-popup' })
+            .setLatLng([closestNode.lat, closestNode.lon])
+            .setContent("<b>Lỗi:</b> Điểm cuối không được trùng với điểm đầu.")
+            .openOn(map);
+          return;
+      }
+      console.log("Selecting end point:", closestNode.node_id); // DEBUG
+      selectedPoints.push(closestNode.node_id);
+      if (endPointMarker) map.removeLayer(endPointMarker);
+      endPointMarker = L.circleMarker([closestNode.lat, closestNode.lon], {
+          radius: 4, color: "green", fillColor: "green", fillOpacity: 0.7, pane: 'markerPane'
+      }).addTo(map)
+        .bindPopup(`<b>Điểm kết thúc</b>`, { className: 'point-popup end-point-popup compact-point-popup', autoClose: false, closeOnClick: false })
+        .openPopup();
+      updateMarkerPopupWithGeocoding(endPointMarker, closestNode.lat, closestNode.lon, "Điểm kết thúc");
+      findAndDrawPath();
+  } else {
+      console.log("Two points already selected."); // DEBUG
+      map.closePopup();
+      L.popup({ className: 'info-leaflet-popup synced-leaflet-popup compact-point-popup' })
+        .setLatLng([closestNode.lat, closestNode.lon])
+        .setContent("Đã có 2 điểm. Nhấn 'Làm mới' để tìm đường mới.")
+        .openOn(map);
+  }
+}
+
+// Hàm được gọi khi người dùng chọn một địa điểm từ kết quả tìm kiếm OSM
+window.selectSearchedLocation = function(lat, lon) {
+  console.log("window.selectSearchedLocation called with lat:", lat, "lng:", lon); 
+  
+  if (tempSearchMarker) {
+      map.closePopup(tempSearchMarker.getPopup()); // Đóng popup của marker tìm kiếm tạm thời
+      map.removeLayer(tempSearchMarker);
+      tempSearchMarker = null;
+  }
+  // Gọi hàm xử lý logic chọn điểm chính
+  processMapSelection(lat, lon);
+}
+
+const placeSearchInput = document.getElementById('placeSearchInput');
+const placeSearchButton = document.getElementById('placeSearchButton'); 
+const searchResultsContainer = document.getElementById('searchResults');
+let tempSearchMarker = null; 
+
+placeSearchButton.addEventListener('click', async function() { 
+const query = placeSearchInput.value.trim();
+if (query.length < 3) {
+    map.closePopup(); 
+    L.popup({
+        className: 'warning-leaflet-popup synced-leaflet-popup compact-point-popup',
+        autoClose: true,
+        closeOnClick: true
+    })
+    .setLatLng(map.getCenter()) 
+    .setContent("<b>Cảnh báo:</b> Vui lòng nhập ít nhất 3 ký tự để tìm kiếm.")
+    .openOn(map);
+    
+    setTimeout(() => {
+        const currentPopup = map._popup;
+        if (currentPopup && currentPopup.getContent().includes("Vui lòng nhập ít nhất 3 ký tự")) {
+            map.closePopup();
+        }
+    }, 3000); 
+    return;
+}
+
+if (tempSearchMarker) { 
+    map.removeLayer(tempSearchMarker);
+    tempSearchMarker = null;
+}
+searchResultsContainer.innerHTML = 'Đang tìm kiếm...'; 
+
+try {
+    const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&limit=5&countrycodes=vn&viewbox=105.7,20.9,106.0,21.2&bounded=1`);
+
+    if (!response.ok) {
+        throw new Error(`Lỗi API: ${response.status}`);
+    }
+    const data = await response.json();
+    searchResultsContainer.innerHTML = ''; 
+
+    if (data && data.length > 0) {
+        data.forEach(place => {
+            const item = document.createElement('div');
+            item.classList.add('search-result-item');
+            item.textContent = place.display_name;
+            item.onclick = function() {
+                const lat = parseFloat(place.lat);
+                const lon = parseFloat(place.lon);
+                const shortDisplayName = place.display_name.split(',')[0];
+                const searchedLatLng = L.latLng(lat, lon);
+
+                if (tempSearchMarker) { 
+                    map.removeLayer(tempSearchMarker);
+                }
+                
+                let isPlaceInsideBoundary = true; 
+                if (trucBachBoundaryLatLngs) {
+                    try {
+                        isPlaceInsideBoundary = isPointInPolygon(searchedLatLng, trucBachBoundaryLatLngs);
+                    } catch (error) {
+                        console.error("Lỗi khi kiểm tra ranh giới cho địa điểm tìm kiếm:", error);
+                    }
+                }
+
+                let popupContent;
+                if (isPlaceInsideBoundary) {
+                    popupContent = `<b>${shortDisplayName}</b><br><button class="btn btn-primary btn-xs" onclick="window.selectSearchedLocation(${lat}, ${lon})">Chọn điểm này</button>`;
+                } else {
+                    popupContent = `<b>Cảnh báo:</b> Địa điểm "${shortDisplayName}" nằm ngoài Phường Trúc Bạch. Không thể chọn.`;
+                }
+                
+                tempSearchMarker = L.marker([lat, lon]).addTo(map)
+                                  .bindPopup(popupContent)
+                                  .openPopup();
+                
+                map.setView([lat, lon], 17); 
+                searchResultsContainer.innerHTML = ''; 
+                placeSearchInput.value = shortDisplayName; 
+            };
+            searchResultsContainer.appendChild(item);
+        });
+    } else {
+        searchResultsContainer.innerHTML = '<div class="search-result-item">Không tìm thấy địa điểm.</div>';
+    }
+} catch (error) {
+    console.error('Lỗi tìm kiếm địa điểm:', error);
+    map.closePopup();
+    L.popup({
+        className: 'error-leaflet-popup synced-leaflet-popup compact-point-popup',
+        autoClose: true,
+        closeOnClick: true
+    })
+    .setLatLng(map.getCenter())
+    .setContent("<b>Lỗi:</b> Có lỗi xảy ra khi tìm kiếm địa điểm. Vui lòng thử lại.")
+    .openOn(map);
+    searchResultsContainer.innerHTML = '<div class="search-result-item">Lỗi khi tìm kiếm.</div>';
+}
+});
+
+placeSearchInput.addEventListener('keypress', function(e) {
+if (e.key === 'Enter') {
+    placeSearchButton.click(); 
+}
+});
+
+// Sửa đổi map.on("click") để sử dụng hàm mới
 map.on("click", function (e) {
   const { lat, lng } = e.latlng;
   const clickedLatLng = e.latlng;
@@ -309,116 +649,31 @@ map.on("click", function (e) {
           return;
       }
   }
-  if (isAdmin && isOneWayEdgeMode) { // Ưu tiên chế độ này
-    handleOneWayEdgeModeClick(e); // Truyền cả event `e`
-    return;
-  }
 
-  // Nếu đang là Admin và không trong các chế độ vẽ
+  // Kiểm tra admin modes và các điều kiện khác trước khi gọi processMapSelection
+  if (isAdmin && isOneWayEdgeMode) {
+      handleOneWayEdgeModeClick(e);
+      return;
+  }
   if (isAdmin && !isBlockMode && !isPlacingObstacle && !isTrafficMode && !isFloodMode) {
-      map.closePopup(); // Đóng các popup khác nếu có
-      L.popup({
-              className: 'info-leaflet-popup synced-leaflet-popup compact-point-popup', // Sử dụng các class đã style
-              autoClose: true,
-              closeOnClick: true
-          })
-          .setLatLng(e.latlng) // Hiển thị popup tại vị trí Admin vừa click
-          .setContent("<b>Thông báo:</b> Chế độ Admin đang hoạt động. Bạn không thể tìm đường ở chế độ này. Hãy sử dụng các chức năng quản lý hoặc chuyển về chế độ Guest để tìm đường.")
-          .openOn(map);
+      map.closePopup();
+      L.popup({ className: 'info-leaflet-popup synced-leaflet-popup compact-point-popup', autoClose: true, closeOnClick: true })
+        .setLatLng(e.latlng)
+        .setContent("<b>Thông báo:</b> Chế độ Admin. Không thể tìm đường. Chuyển về Guest.")
+        .openOn(map);
       return;
   }
-
-  // 1. Chế độ vẽ đường cấm hoặc tắc đường (đều sử dụng polyline)
   if (isBlockMode || isTrafficMode || isFloodMode) {
-    handleDrawingMode(lat, lng, isTrafficMode, isFloodMode);
-    return;
-  }
-
-  // 2. Chế độ đặt vật cản
-  if (isPlacingObstacle) {
-    handleObstaclePlacement(lat, lng);
-    return;
-  }
-
-  let closestNode = null;
-  let minDist = Infinity;
-
-  // Tìm node gần nhất trên bản đồ với điểm được đánh dấu
-  // Cải thiện đc thêm
-  nodes.forEach((node) => {
-    const d = getDistance(lat, lng, node.lat, node.lon);
-    if (d < minDist) {
-      minDist = d;
-      closestNode = node;
-    }
-  });
-
-  if (!closestNode) return;
-
-  if (selectedPoints.length === 0) { 
-      selectedPoints.push(closestNode.node_id);
-
-      if (startPointMarker) {
-          map.removeLayer(startPointMarker);
-          startPointMarker = null;
-      }
-
-      startPointMarker = L.circleMarker([closestNode.lat, closestNode.lon], {
-          radius: 4, // Giữ nguyên radius: 4
-          color: "green", // Giữ nguyên màu "green"
-          fillColor: "green",
-          fillOpacity: 0.7,
-          pane: 'markerPane'
-      }).addTo(map)
-        // Thêm class cho popup để style
-        .bindPopup(`<b>Điểm bắt đầu</b>`, { 
-          className: 'point-popup start-point-popup compact-point-popup', // Thêm class compact
-          autoClose: false, // QUAN TRỌNG: Giữ popup này mở
-          closeOnClick: false
-        })
-        .openPopup();
-
-  } else if (selectedPoints.length === 1) { // Chọn điểm kết thúc
-      if (selectedPoints[0] === closestNode.node_id) { // Kiểm tra trùng điểm
-          L.popup({ className: 'error-leaflet-popup synced-leaflet-popup' }) // Thêm synced-leaflet-popup để dùng chung style nền
-              .setLatLng([closestNode.lat, closestNode.lon])
-              .setContent("<b>Lỗi:</b> Điểm cuối không được trùng với điểm đầu. Vui lòng chọn một điểm khác.")
-              .openOn(map);
-          return;
-      }
-
-      selectedPoints.push(closestNode.node_id);
-
-      if (endPointMarker) {
-          map.removeLayer(endPointMarker);
-          endPointMarker = null;
-      }
-
-      endPointMarker = L.circleMarker([closestNode.lat, closestNode.lon], {
-          radius: 4, // Giữ nguyên radius: 4
-          color: "green", // Giữ nguyên màu "green"
-          fillColor: "green",
-          fillOpacity: 0.7,
-          pane: 'markerPane'
-      }).addTo(map)
-        // Thêm class cho popup để style
-        .bindPopup(`<b>Điểm kết thúc</b>`, { 
-            className: 'point-popup end-point-popup compact-point-popup', // Thêm class compact
-            autoClose: false, // QUAN TRỌNG: Giữ popup này mở
-            closeOnClick: false
-        })
-        .openPopup();
-
-      findAndDrawPath(); // Tìm đường khi đã có 2 điểm
-
-  } else { // Đã có 2 điểm
-      // Sử dụng L.popup cho thông báo này
-      L.popup({ className: 'info-leaflet-popup synced-leaflet-popup' }) // Thêm synced-leaflet-popup
-          .setLatLng([closestNode.lat, closestNode.lon]) // Vị trí của điểm click cuối cùng
-          .setContent("Đã có 2 điểm được chọn. Nhấn 'Làm mới' (Reset) để tìm đường mới.")
-          .openOn(map);
+      handleDrawingMode(lat, lng, isTrafficMode, isFloodMode);
       return;
   }
+  if (isPlacingObstacle) {
+      handleObstaclePlacement(lat, lng);
+      return;
+  }
+
+  // Nếu không phải các mode đặc biệt của admin, gọi hàm xử lý chọn điểm
+  processMapSelection(lat, lng);
 });
 
 // Xử lý di chuyển chuột
@@ -1184,6 +1439,19 @@ function resetMapWithGuest() {
           }
       }
   });
+    // Xóa nội dung ô tìm kiếm
+    if (typeof placeSearchInput !== 'undefined' && placeSearchInput) {
+      placeSearchInput.value = '';
+    }
+    // Xóa kết quả tìm kiếm
+    if (typeof searchResultsContainer !== 'undefined' && searchResultsContainer) {
+      searchResultsContainer.innerHTML = '';
+    }
+    // Xóa marker tạm thời của việc tìm kiếm
+    if (tempSearchMarker) {
+      map.removeLayer(tempSearchMarker);
+      tempSearchMarker = null;
+    }
   redrawBannedLines();
   obstacleMarkers.forEach(([marker, circle]) => {
       if (marker && circle && map.hasLayer(marker) && map.hasLayer(circle)) { // Kiểm tra marker có tồn tại
@@ -1233,7 +1501,18 @@ function resetMapWithAdmin() {
   blockedEdges = [];
   trafficEdges = [];
   floodEdges = [];
-
+  if (typeof placeSearchInput !== 'undefined' && placeSearchInput) {
+    placeSearchInput.value = '';
+  }
+  // Xóa kết quả tìm kiếm
+  if (typeof searchResultsContainer !== 'undefined' && searchResultsContainer) {
+    searchResultsContainer.innerHTML = '';
+  }
+  // Xóa marker tạm thời của việc tìm kiếm
+  if (tempSearchMarker) {
+    map.removeLayer(tempSearchMarker);
+    tempSearchMarker = null;
+  }
   // Xóa tất cả các layer trên bản đồ
   map.eachLayer(function (layer) {
     if (!(layer instanceof L.TileLayer)) {
@@ -1986,46 +2265,3 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
 });
-
-// /*---------------------------  Hiệu ứng duyệt qua các node  ----------------------------------------*/
-// let exploredNodes = []; // Danh sách lưu các marker đã vẽ
-
-// function highlightExploredNodes(explored, callback) {
-//   let i = 0;
-
-//   // Xóa interval trước đó nếu tồn tại
-//   if (highlightInterval) {
-//     clearInterval(highlightInterval);
-//   }
-
-//   // Xóa tất cả marker đã được vẽ trước đó
-//   exploredNodes.forEach((marker) => marker.remove());
-//   exploredNodes = []; // Đặt lại danh sách marker
-
-//   highlightInterval = setInterval(() => {
-//     if (i >= explored.length || reset) {
-//       clearInterval(highlightInterval); // Dừng interval
-//       highlightInterval = null; // Đặt lại biến
-//       if (callback) callback(); // Gọi callback nếu có
-//       return;
-//     }
-
-//     const node = nodes.find((n) => n.node_id === explored[i]);
-//     if (node) {
-//       if (!reset) {
-//         const marker = L.circleMarker([node.lat, node.lon], {
-//           radius: 4,
-//           color: "purple",
-//           fillColor: "purple",
-//           fillOpacity: 0.9,
-//         })
-//           .addTo(map)
-//           .bindTooltip(`Node ${node.node_id}`);
-
-//         exploredNodes.push(marker); // Thêm marker vào danh sách
-//       }
-//     }
-//     i++;
-//   }, 50);
-//   reset = false; // Đặt lại biến reset về false sau khi bắt đầu highlight
-// }
