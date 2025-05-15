@@ -12,6 +12,7 @@
     <!-- Import CSS tùy chỉnh -->
     <link rel="stylesheet" href="ui/css/styles.css" />
     <link rel="icon" type="image/png" href="ui/css/favicon.png" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   </head>
 
   <body>
@@ -20,6 +21,7 @@
 
     <div id="appHeader">
       <div class="place-search-container">
+        <span class="search-icon"><i class="fas fa-map-marker-alt"></i></span>
         <input id="placeSearchInput" placeholder="Nhập tên địa điểm..." />
         <button id="placeSearchButton">Tìm</button>
       </div>
@@ -52,11 +54,8 @@
             <option value="Iterative Deepening DFS">Iterative Deepening DFS</option>
             <option value="Uniform Cost Search">Uniform Cost Search</option>
           </select>
-          <button id="toggleNodes" class="btn btn-primary">
-            Hiển thị Node
-          </button>
-          <button id="togglePaths" class="btn btn-secondary">
-            Hiển thị đường đi
+          <button id="togglePaths" class="btn btn-primary">
+            Bắt đầu tìm đường
           </button>
           <button id="guestResetButton" class="btn btn-danger">Làm mới</button>
         </div>

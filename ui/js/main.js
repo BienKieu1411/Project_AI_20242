@@ -222,47 +222,12 @@ const googleIcon = L.icon({
   iconAnchor: [16, 32],
   popupAnchor: [0, -32],
 });
-document.getElementById("toggleNodes").addEventListener("click", () => {
-  if (!showNodes) {
-    nodeMarkers = nodes.map((n) => {
-      const marker = L.marker([n.lat, n.lon], { icon: googleIcon }).addTo(map);
-      return marker;
-    });
-  } else {
-    // Ẩn các node
-    nodeMarkers.forEach((marker) => map.removeLayer(marker));
-    nodeMarkers = [];
-  }
-
-  showNodes = !showNodes;
-});
 
 /*----------------------------------- Hiện đường đi trên bản đổ --------------------------------*/
 document.getElementById("togglePaths").addEventListener("click", () => {
-  if (!showEdges) {
-    for (let i = 0; i < adj_list_with_weights.length; i++) {
-      const nodeU = nodes.find(
-        (n) => n.node_id === adj_list_with_weights[i].node_id
-      );
-      for (let u = 0; u < adj_list_with_weights[i].neighbors.length; u++) {
-        const nodeV = nodes.find(
-          (n) =>
-            n.node_id === adj_list_with_weights[i].neighbors[u].node_neighbor
-        );
-        const latlngs = [
-          [nodeU.lat, nodeU.lon],
-          [nodeV.lat, nodeV.lon],
-        ];
-
-        L.polyline(latlngs, {
-          color: "green",
-          weight: 3,
-          opacity: 0.8,
-        }).addTo(map);
-      }
-    }
-  } else resetMapWithGuest();
-  showEdges = !showEdges;
+  if (selectedPoints.length === 2){
+    findAndDrawPath();
+  }
 });
 
 /*----------------------------------Xử lý sự kiện trên bàn đồ------------------------------------------------*/
@@ -483,13 +448,12 @@ function processMapSelection(lat, lng) {
         .bindPopup(`<b>Điểm kết thúc</b>`, { className: 'point-popup end-point-popup compact-point-popup', autoClose: false, closeOnClick: false })
         .openPopup();
       updateMarkerPopupWithGeocoding(endPointMarker, closestNode.lat, closestNode.lon, "Điểm kết thúc");
-      findAndDrawPath();
   } else {
       console.log("Two points already selected."); // DEBUG
       map.closePopup();
       L.popup({ className: 'info-leaflet-popup synced-leaflet-popup compact-point-popup' })
         .setLatLng([closestNode.lat, closestNode.lon])
-        .setContent("Đã có 2 điểm. Nhấn 'Làm mới' để tìm đường mới.")
+        .setContent("Đã có 2 điểm.")
         .openOn(map);
   }
 }
@@ -906,8 +870,8 @@ function findAndDrawPath() {
   // Lấy các giá trị hệ số từ UI (nếu có)
   const currentTrafficLevel = document.getElementById("trafficLevel") ? parseInt(document.getElementById("trafficLevel").value) : 1;
   const currentFloodLevel = document.getElementById("floodLevel") ? parseInt(document.getElementById("floodLevel").value) : 1;
-  const maxDepthForIDDFS = 10000; // Giá trị mặc định hoặc lấy từ UI nếu có
-  const iterationsForAStar = 10000; // Giá trị mặc định hoặc lấy từ UI nếu có
+  const maxDepthForIDDFS = 100000; // Giá trị mặc định hoặc lấy từ UI nếu có
+  const iterationsForAStar = 100000; // Giá trị mặc định hoặc lấy từ UI nếu có
 
 
   console.log(`Tìm đường từ ${startNode} đến ${endNode} bằng ${selectedAlgorithm}`);
@@ -967,8 +931,8 @@ function findAndDrawPath() {
           errorMessage = err.data.error;
       } else if (err && err.message) {
           errorMessage = err.message.toLowerCase().includes("failed to fetch") ? 
-                         "Không thể kết nối tới máy chủ (app.py chưa chạy hoặc có lỗi mạng)." : 
-                         err.message;
+                        "Không thể kết nối tới máy chủ (app.py chưa chạy hoặc có lỗi mạng)." : 
+                        err.message;
       }
       displayPathfindingError(errorMessage);
   });
@@ -992,7 +956,7 @@ algorithmSelect.addEventListener("change", function () {
 
       setTimeout(() => {
           map.closePopup();
-      }, 3000); // Đóng sau 3 giây
+      }, 2000); // Đóng sau 3 giây
 
       getAlgorithm(); // Gọi hàm để làm mới đường đi
     }
@@ -1600,7 +1564,222 @@ function segmentsIntersect(p1, p2, q1, q2, epsilon) {
   return distance <= epsilon;
 }
 
+let currentDebugDisplayLayers = [];
+let guestPathPolyline = null; 
+
+function clearCurrentDebugDisplay() {
+    currentDebugDisplayLayers.forEach(layer => {
+        if (map.hasLayer(layer)) {
+            map.removeLayer(layer);
+        }
+    });
+    currentDebugDisplayLayers = [];
+    console.log("Đã xóa hiển thị debug cũ (nếu có).");
+}
+
+function displayNodeAndDirectNeighbors(targetNodeIds) {
+    clearCurrentDebugDisplay(); // Xóa hiển thị cũ
+
+    if (typeof nodes === 'undefined' || typeof adj_list_with_weights === 'undefined' ||
+        !nodes || nodes.length === 0 || !adj_list_with_weights || adj_list_with_weights.length === 0) {
+        console.error("Lỗi: Dữ liệu đồ thị (nodes.js hoặc adj_list_with_weights.js) chưa tải xong, rỗng hoặc bị lỗi.");
+        L.popup().setLatLng(map.getCenter()).setContent("Lỗi: Dữ liệu đồ thị chưa tải xong hoặc bị lỗi.").openOn(map);
+        return;
+    }
+
+    console.log("Bắt đầu vẽ tập nút mục tiêu và các lân cận trực tiếp của chúng...");
+
+    const nodesToDrawIds = new Set(targetNodeIds); 
+    const edgesToDraw = []; 
+    const drawnDirectedEdgeKeys = new Set(); 
+
+    adj_list_with_weights.forEach(sourceNodeInfo => {
+        const u = sourceNodeInfo.node_id;
+        if (sourceNodeInfo.neighbors) {
+            sourceNodeInfo.neighbors.forEach(neighborInfo => {
+                const v = neighborInfo.node_neighbor;
+                const weight = neighborInfo.weight;
+                const u_is_target = targetNodeIds.includes(u);
+                const v_is_target = targetNodeIds.includes(v);
+
+                if (u_is_target || v_is_target) {
+                    nodesToDrawIds.add(u); 
+                    nodesToDrawIds.add(v); 
+
+                    const directedEdgeKey = `${u}->${v}`;
+                    if (!drawnDirectedEdgeKeys.has(directedEdgeKey)) {
+                        let edgeType = 'unknown';
+                        if (u_is_target && v_is_target) {
+                            edgeType = 'between_targets'; 
+                        } else if (u_is_target) {
+                            edgeType = 'outgoing_from_target'; 
+                        } else if (v_is_target) {
+                            edgeType = 'incoming_to_target';   
+                        }
+                        
+                        edgesToDraw.push({
+                            source: u,
+                            target: v,
+                            weight: weight,
+                            type: edgeType
+                        });
+                        drawnDirectedEdgeKeys.add(directedEdgeKey);
+                    }
+                }
+            });
+        }
+    });
+    
+    nodesToDrawIds.forEach(nodeId => {
+        const nodeData = nodes.find(n => n.node_id === nodeId);
+        if (nodeData && typeof nodeData.lat === 'number' && typeof nodeData.lon === 'number') {
+            let markerColor, fillColor, markerRadius, zIndexOffset;
+
+            if (targetNodeIds.includes(nodeId)) {
+                markerColor = 'red'; 
+                fillColor = '#ffcdd2'; 
+                markerRadius = 7;     
+                zIndexOffset = 2000;  
+            } else { 
+                markerColor = 'blue'; 
+                fillColor = '#bbdefb'; 
+                markerRadius = 5;
+                zIndexOffset = 1000;
+            }
+
+            const nodeMarker = L.circleMarker([nodeData.lat, nodeData.lon], {
+                radius: markerRadius,
+                color: markerColor,
+                fillColor: fillColor,
+                fillOpacity: 0.9,
+                weight: 1.5,
+                pane: 'markerPane', 
+                zIndexOffset: zIndexOffset 
+            }).addTo(map);
+
+            let nodePopupContent = `<b>Nút ID:</b> ${nodeData.node_id}<br>`;
+            if (targetNodeIds.includes(nodeId)) {
+                nodePopupContent += `<i>(Nút mục tiêu/đang kiểm tra)</i><br>`;
+            } else {
+                nodePopupContent += `<i>(Nút lân cận trực tiếp)</i><br>`;
+            }
+            nodePopupContent += `<hr style="margin: 2px 0;">`;
+
+            const actualOutgoingEdges = adj_list_with_weights.find(item => item.node_id === nodeId);
+            if (actualOutgoingEdges && actualOutgoingEdges.neighbors && actualOutgoingEdges.neighbors.length > 0) {
+                nodePopupContent += `<b>Các cạnh đi ra (từ dữ liệu gốc):</b><div style="max-height: 70px; overflow-y: auto; font-size:0.85em;">`;
+                actualOutgoingEdges.neighbors.forEach(neighbor => {
+                    nodePopupContent += `&bull; Đến ${neighbor.node_neighbor} (w: ${neighbor.weight.toFixed(0)}m)<br>`;
+                });
+                nodePopupContent += `</div>`;
+            } else {
+                nodePopupContent += `<i>Không có cạnh đi ra trong dữ liệu.</i><br>`;
+            }
+            nodeMarker.bindPopup(nodePopupContent, { className: 'compact-point-popup synced-leaflet-popup' });
+            currentDebugDisplayLayers.push(nodeMarker);
+        } else {
+            console.warn("Không tìm thấy dữ liệu tọa độ cho nút ID:", nodeId, "hoặc dữ liệu không hợp lệ.");
+        }
+    });
+
+    edgesToDraw.forEach(edge => {
+        const sourceNodeData = nodes.find(n => n.node_id === edge.source);
+        const targetNodeData = nodes.find(n => n.node_id === edge.target);
+
+        if (sourceNodeData && targetNodeData &&
+            typeof sourceNodeData.lat === 'number' && typeof sourceNodeData.lon === 'number' &&
+            typeof targetNodeData.lat === 'number' && typeof targetNodeData.lon === 'number') {
+
+            const latlngs = [
+                [sourceNodeData.lat, sourceNodeData.lon],
+                [targetNodeData.lat, targetNodeData.lon]
+            ];
+            const edgeWeightVal = edge.weight; 
+            const edgeWeightKm = (edgeWeightVal / 1000).toFixed(2);
+
+            let edgeLineColor;
+            let edgeLineWeight = 2;
+            let edgeLineOpacity = 0.75;
+
+            switch(edge.type) {
+                case 'incoming_to_target': 
+                    edgeLineColor = 'orange'; 
+                    edgeLineWeight = 2.5;
+                    break;
+                case 'outgoing_from_target': 
+                    edgeLineColor = 'purple'; 
+                    edgeLineWeight = 2.5;
+                    edgeLineOpacity = 0.85;
+                    break;
+                case 'between_targets': 
+                    edgeLineColor = 'deeppink'; 
+                    edgeLineWeight = 3;
+                    edgeLineOpacity = 0.9;
+                    break;
+                default: 
+                    edgeLineColor = 'gray'; 
+            }
+            
+            if (sourceNodeData.lat === targetNodeData.lat && sourceNodeData.lon === targetNodeData.lon && edgeWeightVal > 0) {
+                console.warn(`Cạnh từ ${sourceNodeData.node_id} đến ${targetNodeData.node_id} có trọng số > 0 nhưng tọa độ trùng nhau. Bỏ qua vẽ.`);
+                return; 
+            }
+
+            const edgePolyline = L.polyline(latlngs, {
+                color: edgeLineColor,
+                weight: edgeLineWeight,
+                opacity: edgeLineOpacity
+            }).addTo(map);
+
+            edgePolyline.bindPopup(
+                `<b>Cạnh (${edge.type}):</b><br>` +
+                `${edge.source} &rarr; ${edge.target}<br>` +
+                `<b>Quãng đường:</b> ${edgeWeightKm} km (${edgeWeightVal.toFixed(0)} m)`,
+                { className: 'compact-point-popup synced-leaflet-popup' }
+            );
+            currentDebugDisplayLayers.push(edgePolyline);
+        } else {
+            console.warn("Không thể vẽ cạnh do thiếu thông tin nút nguồn hoặc đích:", edge);
+        }
+    });
+
+    console.log(`Đã vẽ xong các nút mục tiêu và lân cận trực tiếp. ${currentDebugDisplayLayers.length} layers được thêm.`);
+
+    if (currentDebugDisplayLayers.length > 0) {
+        const groupToZoom = L.featureGroup(currentDebugDisplayLayers.filter(layer => layer instanceof L.CircleMarker || layer instanceof L.Marker));
+        if (groupToZoom.getLayers().length > 0) {
+            try {
+                map.fitBounds(groupToZoom.getBounds().pad(0.3)); 
+            } catch (e) {
+                console.warn("Không thể tự động zoom vào các nút:", e);
+            }
+        } else if (currentDebugDisplayLayers.filter(layer => layer instanceof L.Polyline).length > 0) {
+            const polylineGroup = L.featureGroup(currentDebugDisplayLayers.filter(layer => layer instanceof L.Polyline));
+            if (polylineGroup.getLayers().length > 0) {
+                try {
+                    map.fitBounds(polylineGroup.getBounds().pad(0.3));
+                } catch (e) {
+                    console.warn("Không thể tự động zoom vào polylines:", e);
+                }
+            }
+        }
+    }
+}
+
 function drawPath(pathNodeIds, costWithFactors, realDistance, algorithmUsed) {
+  // Xóa đường đi cũ của guest nếu có
+  if (guestPathPolyline && map.hasLayer(guestPathPolyline)) {
+      map.removeLayer(guestPathPolyline);
+      guestPathPolyline = null;
+  }
+  // Cũng có thể bạn dùng ID để xóa, đảm bảo nó được xóa:
+  map.eachLayer(function (layer) {
+      if (layer.options && layer.options.id === 'path-polyline-guest') {
+          map.removeLayer(layer);
+      }
+  });
+
+
   if (!pathNodeIds || pathNodeIds.length < 2) {
       console.warn("drawPath: Đường đi không hợp lệ hoặc không đủ điểm để vẽ.");
       return;
@@ -1610,38 +1789,44 @@ function drawPath(pathNodeIds, costWithFactors, realDistance, algorithmUsed) {
       const node = nodes.find((n) => n.node_id === id);
       if (!node) {
           console.warn(`drawPath: Không tìm thấy thông tin cho node ID: ${id}`);
-          return null; 
+          return null;
       }
       return [node.lat, node.lon];
-  }).filter(p => p !== null); 
+  }).filter(p => p !== null && typeof p[0] === 'number' && typeof p[1] === 'number');
 
   if (latlngs.length < 2) {
-      console.warn("drawPath: Không đủ điểm hợp lệ để vẽ đường đi.");
+      console.warn("drawPath: Không đủ điểm hợp lệ (sau khi lọc) để vẽ đường đi.");
       return;
   }
 
+  // Tạo đối tượng polyline, ban đầu chỉ với điểm đầu tiên để bắt đầu animation
+  guestPathPolyline = L.polyline([latlngs[0]], { // Khởi tạo với điểm đầu tiên
+      color: "#28a745", // Màu xanh lá cây cho đường đi
+      weight: 6,        // Độ dày của đường
+      opacity: 0.85,
+      id: 'path-polyline-guest', // ID để có thể xóa sau này
+      className: 'path-guest-route' // Class CSS (nếu có)
+  }).addTo(map);
+
+  // Chuẩn bị nội dung popup
   let popupContent = `<div class="path-info-popup-content">`;
-  popupContent += `<b><i class="fas fa-route" style="margin-right: 5px;"></i>Thông tin lộ trình</b>`;
-  
-  // Hiển thị Thời gian di chuyển ước tính (cost_with_factors)
-  // Áp dụng định dạng thời gian cho tất cả thuật toán
+  popupContent += `<b><i class="fas fa-route" style="margin-right: 5px;"></i>Thông tin lộ trình (${algorithmUsed})</b>`;
+
   if (costWithFactors !== undefined && costWithFactors !== null && costWithFactors !== Infinity) {
       let formattedCost = "";
-      // Giả định costWithFactors từ backend là một giá trị số (có thể là giây hoặc một đơn vị chi phí tương đương)
-      // Nếu giá trị rất lớn, có thể hiển thị dưới dạng đơn vị lớn hơn hoặc "chi phí" chung.
-      if (costWithFactors >= 3600) { // Nếu lớn hơn hoặc bằng 1 giờ (3600 giây)
+      if (costWithFactors >= 3600) {
           const hours = Math.floor(costWithFactors / 3600);
           const minutes = Math.floor((costWithFactors % 3600) / 60);
           formattedCost = `${hours} giờ ${minutes} phút`;
-      } else if (costWithFactors >= 60) { // Nếu lớn hơn hoặc bằng 1 phút (60 giây)
+      } else if (costWithFactors >= 60) {
           const minutes = Math.floor(costWithFactors / 60);
           const seconds = Math.round(costWithFactors % 60);
           formattedCost = `${minutes} phút ${seconds} giây`;
-      } else if (costWithFactors > 0) { // Nếu nhỏ hơn 1 phút
-          formattedCost = `${costWithFactors.toFixed(0)} giây`; 
+      } else if (costWithFactors > 0) {
+          formattedCost = `${costWithFactors.toFixed(0)} giây`;
       } else if (costWithFactors === 0) {
           formattedCost = `Không đáng kể`;
-      } else { // Trường hợp giá trị âm hoặc không xác định khác
+      } else {
           formattedCost = `Không xác định`;
       }
       popupContent += `<br><i class="fas fa-stopwatch" style="margin-right: 5px;"></i>Thời gian ước tính: ${formattedCost}`;
@@ -1649,12 +1834,11 @@ function drawPath(pathNodeIds, costWithFactors, realDistance, algorithmUsed) {
       popupContent += `<br><i class="fas fa-stopwatch" style="margin-right: 5px;"></i>Thời gian ước tính: Không có`;
   }
 
-  // Hiển thị Quãng đường thực tế (realDistance)
   if (realDistance !== undefined && realDistance !== null && realDistance !== Infinity) {
       let formattedDistance = "";
-      if (realDistance >= 1000) { 
+      if (realDistance >= 1000) {
           formattedDistance = (realDistance / 1000).toFixed(2) + " km";
-      } else if (realDistance >= 0) { 
+      } else if (realDistance >= 0) {
           formattedDistance = realDistance.toFixed(0) + " m";
       } else {
           formattedDistance = "Không xác định";
@@ -1663,21 +1847,98 @@ function drawPath(pathNodeIds, costWithFactors, realDistance, algorithmUsed) {
   } else {
       popupContent += `<br><i class="fas fa-ruler-combined" style="margin-right: 5px;"></i>Quãng đường thực tế: Không có`;
   }
-  popupContent += `<br><i class="fas fa-tachometer-alt" style="margin-right: 5px;"></i>Vận tốc trung bình: 15 km/h`;
+  const averageSpeedKmph = "15"; 
+  popupContent += `<br><i class="fas fa-tachometer-alt" style="margin-right: 5px;"></i>Vận tốc trung bình: ${averageSpeedKmph} km/h`;
   popupContent += `</div>`;
 
-  L.polyline(latlngs, {
-      color: "#28a745", 
-      weight: 6,      
-      opacity: 0.85,
-      id: 'path-polyline-guest', 
-      className: 'path-guest-route' 
-  }).bindPopup(popupContent, { 
-      className: 'synced-leaflet-popup path-info-leaflet-popup',
-      closeOnClick: false,   
-      autoClose: false
-  }).addTo(map).openPopup();
+  // Animation
+  let currentIndex = 1; 
+  const animationSpeed = 80; 
+  const totalSegments = latlngs.length -1;
+  let segmentsDrawn = 0;
+
+  function animatePathDrawing() {
+      if (currentIndex < latlngs.length && guestPathPolyline && map.hasLayer(guestPathPolyline)) {
+          guestPathPolyline.addLatLng(L.latLng(latlngs[currentIndex]));
+          segmentsDrawn++;
+          
+          if (segmentsDrawn % 20 === 0 || segmentsDrawn === totalSegments) { // Cập nhật view sau mỗi 5 đoạn hoặc khi kết thúc
+            map.panTo(L.latLng(latlngs[currentIndex]), { animate: true, duration: 0.3});
+          }
+
+          currentIndex++;
+          setTimeout(animatePathDrawing, animationSpeed);
+      } else if (guestPathPolyline && map.hasLayer(guestPathPolyline)) {
+        guestPathPolyline.bindPopup(popupContent, {
+            className: 'synced-leaflet-popup path-info-leaflet-popup',
+            closeOnClick: false, 
+            autoClose: false     
+        });
+
+        setTimeout(() => {
+            if (guestPathPolyline && map.hasLayer(guestPathPolyline) && latlngs.length > 0) {
+                // Xác định điểm giữa của đường đi
+                const latLngObjects = latlngs.map(p => L.latLng(p));
+
+                const middleLatLng = getLatLngAtHalfDistance(latLngObjects);
+
+                console.log(middleLatLng);
+
+                guestPathPolyline.getPopup().setLatLng(middleLatLng).openOn(map);
+
+                map.fitBounds(guestPathPolyline.getBounds().pad(0.3));
+            }
+        }, 500);
+      }
+  }
+
+  if (latlngs.length >= 1 && guestPathPolyline) { 
+      animatePathDrawing();
+  } else if (latlngs.length === 1 && guestPathPolyline) {
+      guestPathPolyline.bindPopup(popupContent, { 
+          closeOnClick: false,
+          autoClose: false
+      });
+      setTimeout(() => {
+          if (guestPathPolyline && map.hasLayer(guestPathPolyline)) {
+              guestPathPolyline.openPopup(L.latLng(latlngs[0]));
+               map.setView(L.latLng(latlngs[0]), 17); // Zoom vào điểm đó
+          }
+      }, 500);
+  }
 }
+
+function getLatLngAtHalfDistance(latlngs) {
+  if (!Array.isArray(latlngs) || latlngs.length < 2) return null;
+
+  // Đảm bảo định dạng
+  latlngs = latlngs.map(p => (p instanceof L.LatLng ? p : L.latLng(p)));
+
+  let totalDistance = 0;
+  const distances = [];
+
+  for (let i = 0; i < latlngs.length - 1; i++) {
+      const dist = latlngs[i].distanceTo(latlngs[i + 1]);
+      distances.push(dist);
+      totalDistance += dist;
+  }
+
+  const halfDistance = totalDistance / 2;
+  let accumulated = 0;
+
+  for (let i = 0; i < distances.length; i++) {
+      if (accumulated + distances[i] >= halfDistance) {
+          const ratio = (halfDistance - accumulated) / distances[i];
+          const lat = latlngs[i].lat + ratio * (latlngs[i + 1].lat - latlngs[i].lat);
+          const lng = latlngs[i].lng + ratio * (latlngs[i + 1].lng - latlngs[i].lng);
+          return L.latLng(lat, lng);
+      }
+      accumulated += distances[i];
+  }
+
+  return latlngs[Math.floor(latlngs.length / 2)];
+}
+
 
 function distanceToLine(point, lineStart, lineEnd) {
   const x = point[0];
