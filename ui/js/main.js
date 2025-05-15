@@ -449,12 +449,16 @@ function processMapSelection(lat, lng) {
         .openPopup();
       updateMarkerPopupWithGeocoding(endPointMarker, closestNode.lat, closestNode.lon, "Điểm kết thúc");
   } else {
-      console.log("Two points already selected."); // DEBUG
-      map.closePopup();
-      L.popup({ className: 'info-leaflet-popup synced-leaflet-popup compact-point-popup' })
-        .setLatLng([closestNode.lat, closestNode.lon])
-        .setContent("Đã có 2 điểm.")
-        .openOn(map);
+    const popup = L.popup({
+      className: 'info-leaflet-popup synced-leaflet-popup compact-point-popup'
+    })
+      .setLatLng([closestNode.lat, closestNode.lon])
+      .setContent("Đã có Điểm đầu và Điểm cuối.")
+      .openOn(map);
+    
+    setTimeout(() => {
+      map.closePopup(popup);
+    }, 3000);
   }
 }
 
