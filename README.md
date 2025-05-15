@@ -73,36 +73,22 @@ Project_AI_20242/
 │
 ├── index.html
 │
+├── requirements.txt
+│
+├── run.ps1
+│
 └── README.md
 ```
 
 ## ⚙️ How to Run
-### 1. Install dependencies
-- Make sure you have Python 3, Flask, osmnx installed.
 
-```bash
-pip install flask osmnx
+- Open a terminal or PowerShell, navigate to your project directory.
+
+- Run the following command to start the app:
+  
+```powershell
+.\run.ps1
 ```
-
-### 2. Start Flask server
-
-```bash
-py app.py
-```
-
-- You will see something like:
-
-```nginx
-Running on http://127.0.0.1:5000
-```
-### 3. Open in browser
-- Open your browser and go to:
-
-```cpp
-http://127.0.0.1:5000
-```
-
-- ✅ DO NOT open index.html directly using Live Server or double-clicking it, as that will bypass Flask and break API communication.
 
 ## 🛠️ Add New Algorithms
 - To add a new search algorithm:
