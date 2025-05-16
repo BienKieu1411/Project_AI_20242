@@ -1782,6 +1782,10 @@ function displayNodeAndDirectNeighbors(targetNodeIds) {
 
 function drawPath(pathNodeIds, costWithFactors, realDistance, algorithmUsed) {
   // Xóa đường đi cũ của guest nếu có
+  algorithmSelect.disabled = true; // Khóa
+  togglePaths.disabled = true;
+  roleToggle.disabled = true;
+  guestResetButton.disabled = true;
   if (guestPathPolyline && map.hasLayer(guestPathPolyline)) {
       map.removeLayer(guestPathPolyline);
       guestPathPolyline = null;
@@ -1888,7 +1892,10 @@ function drawPath(pathNodeIds, costWithFactors, realDistance, algorithmUsed) {
             closeOnClick: false, 
             autoClose: false     
         });
-
+        algorithmSelect.disabled = false; // Khóa
+        togglePaths.disabled = false;
+        roleToggle.disabled = false;
+        guestResetButton.disabled = false;
         setTimeout(() => {
             if (guestPathPolyline && map.hasLayer(guestPathPolyline) && latlngs.length > 0) {
                 // Xác định điểm giữa của đường đi
@@ -1913,6 +1920,10 @@ function drawPath(pathNodeIds, costWithFactors, realDistance, algorithmUsed) {
           closeOnClick: false,
           autoClose: false
       });
+      algorithmSelect.disabled = false;
+      togglePaths.disabled = false;
+      roleToggle.disabled = false;
+      guestResetButton.disabled = false;
       setTimeout(() => {
           if (guestPathPolyline && map.hasLayer(guestPathPolyline)) {
               guestPathPolyline.openPopup(L.latLng(latlngs[0]));
