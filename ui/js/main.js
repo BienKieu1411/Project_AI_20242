@@ -312,10 +312,9 @@ async function updateMarkerPopupWithGeocoding(marker, lat, lon, title) {
                   fetchFullNameAndRefreshPopup();
               });
           }
-      }, 50); // Delay ngắn để DOM popup chắc chắn render xong
+      }, 50); 
   };
 
-  // Tải tên đầy đủ khi click "Xem chi tiết"
   const fetchFullNameAndRefreshPopup = async () => {
       if (cData.detailFetched || cData.isFetchingDetail) return;
       cData.isFetchingDetail = true;
@@ -330,7 +329,12 @@ async function updateMarkerPopupWithGeocoding(marker, lat, lon, title) {
           );
           if (!response.ok) throw new Error(`Lỗi API (chi tiết): ${response.status}`);
           const data = await response.json();
-          cData.fullName = data.display_name || "(Không có tên chi tiết)";
+          const rawName = data.display_name || "(Không có tên chi tiết)";
+          const parts = rawName.split(',').map(p => p.trim());
+          if (parts.length > 2) {
+            parts.splice(-2, 2);
+          }
+          cData.fullName = parts.join(', ');
       } catch (err) {
           console.error("Lỗi tải tên chi tiết:", err);
           cData.fullName = "";
@@ -394,9 +398,7 @@ async function updateMarkerPopupWithGeocoding(marker, lat, lon, title) {
   }
 }
 
-// Hàm mới để xử lý logic chọn điểm sau khi có tọa độ
 function processMapSelection(lat, lng) {
-  console.log("processMapSelection called with lat:", lat, "lng:", lng); // DEBUG
   const clickedLatLng = L.latLng(lat, lng); 
   let closestNode = null;
   let minDist = Infinity;
@@ -417,10 +419,8 @@ function processMapSelection(lat, lng) {
         .openOn(map);
       return;
   }
-  console.log("Closest node found:", closestNode); // DEBUG
 
   if (selectedPoints.length === 0) {
-      console.log("Selecting start point:", closestNode.node_id); // DEBUG
       selectedPoints.push(closestNode.node_id);
       if (startPointMarker) map.removeLayer(startPointMarker);
       startPointMarker = L.circleMarker([closestNode.lat, closestNode.lon], {
@@ -428,10 +428,9 @@ function processMapSelection(lat, lng) {
       }).addTo(map)
         .bindPopup(`<b>Điểm bắt đầu</b>`, { className: 'point-popup start-point-popup compact-point-popup', autoClose: false, closeOnClick: false })
         .openPopup();
-      updateMarkerPopupWithGeocoding(startPointMarker, closestNode.lat, closestNode.lon, "Điểm bắt đầu");
+      updateMarkerPopupWithGeocoding(startPointMarker, clickedLatLng.lat, clickedLatLng.lng, "Điểm bắt đầu");
   } else if (selectedPoints.length === 1) {
       if (selectedPoints[0] === closestNode.node_id) {
-          console.log("End point is same as start point."); // DEBUG
           map.closePopup();
           L.popup({ className: 'error-leaflet-popup synced-leaflet-popup compact-point-popup' })
             .setLatLng([closestNode.lat, closestNode.lon])
@@ -439,7 +438,6 @@ function processMapSelection(lat, lng) {
             .openOn(map);
           return;
       }
-      console.log("Selecting end point:", closestNode.node_id); // DEBUG
       selectedPoints.push(closestNode.node_id);
       if (endPointMarker) map.removeLayer(endPointMarker);
       endPointMarker = L.circleMarker([closestNode.lat, closestNode.lon], {
@@ -447,7 +445,7 @@ function processMapSelection(lat, lng) {
       }).addTo(map)
         .bindPopup(`<b>Điểm kết thúc</b>`, { className: 'point-popup end-point-popup compact-point-popup', autoClose: false, closeOnClick: false })
         .openPopup();
-      updateMarkerPopupWithGeocoding(endPointMarker, closestNode.lat, closestNode.lon, "Điểm kết thúc");
+      updateMarkerPopupWithGeocoding(endPointMarker, clickedLatLng.lat, clickedLatLng.lng, "Điểm kết thúc");
   } else {
     const popup = L.popup({
       className: 'info-leaflet-popup synced-leaflet-popup compact-point-popup'
@@ -462,16 +460,14 @@ function processMapSelection(lat, lng) {
   }
 }
 
-// Hàm được gọi khi người dùng chọn một địa điểm từ kết quả tìm kiếm OSM
 window.selectSearchedLocation = function(lat, lon) {
   console.log("window.selectSearchedLocation called with lat:", lat, "lng:", lon); 
   
   if (tempSearchMarker) {
-      map.closePopup(tempSearchMarker.getPopup()); // Đóng popup của marker tìm kiếm tạm thời
+      map.closePopup(tempSearchMarker.getPopup()); 
       map.removeLayer(tempSearchMarker);
       tempSearchMarker = null;
   }
-  // Gọi hàm xử lý logic chọn điểm chính
   processMapSelection(lat, lon);
 }
 
@@ -481,99 +477,113 @@ const searchResultsContainer = document.getElementById('searchResults');
 let tempSearchMarker = null; 
 
 placeSearchButton.addEventListener('click', async function() { 
-const query = placeSearchInput.value.trim();
-if (query.length < 3) {
-    map.closePopup(); 
-    L.popup({
-        className: 'warning-leaflet-popup synced-leaflet-popup compact-point-popup',
-        autoClose: true,
-        closeOnClick: true
-    })
-    .setLatLng(map.getCenter()) 
-    .setContent("<b>Cảnh báo:</b> Vui lòng nhập ít nhất 3 ký tự để tìm kiếm.")
-    .openOn(map);
-    
-    setTimeout(() => {
-        const currentPopup = map._popup;
-        if (currentPopup && currentPopup.getContent().includes("Vui lòng nhập ít nhất 3 ký tự")) {
-            map.closePopup();
-        }
-    }, 3000); 
-    return;
-}
+  const query = placeSearchInput.value.trim();
+  if (query.length < 3) {
+      map.closePopup(); 
+      L.popup({
+          className: 'warning-leaflet-popup synced-leaflet-popup compact-point-popup',
+          autoClose: true,
+          closeOnClick: true
+      })
+      .setLatLng(map.getCenter()) 
+      .setContent("<b>Cảnh báo:</b> Vui lòng nhập ít nhất 3 ký tự để tìm kiếm.")
+      .openOn(map);
 
-if (tempSearchMarker) { 
-    map.removeLayer(tempSearchMarker);
-    tempSearchMarker = null;
-}
-searchResultsContainer.innerHTML = 'Đang tìm kiếm...'; 
+      setTimeout(() => {
+          const currentPopup = map._popup;
+          if (currentPopup && currentPopup.getContent().includes("Vui lòng nhập ít nhất 3 ký tự")) {
+              map.closePopup();
+          }
+      }, 3000); 
+      return;
+  }
 
-try {
-    const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&limit=5&countrycodes=vn&viewbox=105.7,20.9,106.0,21.2&bounded=1`);
+  if (tempSearchMarker) { 
+      map.removeLayer(tempSearchMarker);
+      tempSearchMarker = null;
+  }
+  searchResultsContainer.innerHTML = 'Đang tìm kiếm...'; 
 
-    if (!response.ok) {
-        throw new Error(`Lỗi API: ${response.status}`);
-    }
-    const data = await response.json();
-    searchResultsContainer.innerHTML = ''; 
+  try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&limit=5&countrycodes=vn&viewbox=105.7,20.9,106.0,21.2&bounded=1`);
 
-    if (data && data.length > 0) {
+      if (!response.ok) {
+          throw new Error(`Lỗi API: ${response.status}`);
+      }
+      const data = await response.json();
+      searchResultsContainer.innerHTML = ''; 
+
+      if (data && data.length > 0) {
+        let resultsFound = 0;
+
         data.forEach(place => {
+            const lat = parseFloat(place.lat);
+            const lon = parseFloat(place.lon);
+            const searchedLatLng = L.latLng(lat, lon);
+        
+            let isPlaceInsideBoundary = true;
+            if (trucBachBoundaryLatLngs) {
+                try {
+                    isPlaceInsideBoundary = isPointInPolygon(searchedLatLng, trucBachBoundaryLatLngs);
+                } catch (error) {
+                    console.error("Lỗi khi kiểm tra ranh giới cho địa điểm tìm kiếm:", error);
+                }
+            }
+        
+            if (!isPlaceInsideBoundary) return; 
+        
+            resultsFound++;
+        
             const item = document.createElement('div');
             item.classList.add('search-result-item');
-            item.textContent = place.display_name;
+        
+            const parts = place.display_name.split(',').map(p => p.trim());
+            if (parts.length > 2) {
+                parts.splice(-2, 2);
+            }
+            item.textContent = parts.join(', ');
+        
             item.onclick = function() {
-                const lat = parseFloat(place.lat);
-                const lon = parseFloat(place.lon);
                 const shortDisplayName = place.display_name.split(',')[0];
-                const searchedLatLng = L.latLng(lat, lon);
-
-                if (tempSearchMarker) { 
+        
+                if (tempSearchMarker) {
                     map.removeLayer(tempSearchMarker);
                 }
-                
-                let isPlaceInsideBoundary = true; 
-                if (trucBachBoundaryLatLngs) {
-                    try {
-                        isPlaceInsideBoundary = isPointInPolygon(searchedLatLng, trucBachBoundaryLatLngs);
-                    } catch (error) {
-                        console.error("Lỗi khi kiểm tra ranh giới cho địa điểm tìm kiếm:", error);
-                    }
-                }
-
-                let popupContent;
-                if (isPlaceInsideBoundary) {
-                    popupContent = `<b>${shortDisplayName}</b><br><button class="btn btn-primary btn-xs" onclick="window.selectSearchedLocation(${lat}, ${lon})">Chọn điểm này</button>`;
-                } else {
-                    popupContent = `<b>Cảnh báo:</b> Địa điểm "${shortDisplayName}" nằm ngoài Phường Trúc Bạch. Không thể chọn.`;
-                }
-                
+        
+                const popupContent = `<b>${shortDisplayName}</b><br><button class="btn btn-primary btn-xs" onclick="window.selectSearchedLocation(${lat}, ${lon})">Chọn điểm này</button>`;
+        
                 tempSearchMarker = L.marker([lat, lon]).addTo(map)
-                                  .bindPopup(popupContent)
-                                  .openPopup();
-                
-                map.setView([lat, lon], 17); 
-                searchResultsContainer.innerHTML = ''; 
-                placeSearchInput.value = shortDisplayName; 
+                                      .bindPopup(popupContent)
+                                      .openPopup();
+        
+                map.setView([lat, lon], 17);
+                searchResultsContainer.innerHTML = '';
+                placeSearchInput.value = shortDisplayName;
             };
+        
             searchResultsContainer.appendChild(item);
         });
-    } else {
-        searchResultsContainer.innerHTML = '<div class="search-result-item">Không tìm thấy địa điểm.</div>';
-    }
-} catch (error) {
-    console.error('Lỗi tìm kiếm địa điểm:', error);
-    map.closePopup();
-    L.popup({
-        className: 'error-leaflet-popup synced-leaflet-popup compact-point-popup',
-        autoClose: true,
-        closeOnClick: true
-    })
-    .setLatLng(map.getCenter())
-    .setContent("<b>Lỗi:</b> Có lỗi xảy ra khi tìm kiếm địa điểm. Vui lòng thử lại.")
-    .openOn(map);
-    searchResultsContainer.innerHTML = '<div class="search-result-item">Lỗi khi tìm kiếm.</div>';
-}
+        
+        if (resultsFound === 0) {
+            searchResultsContainer.innerHTML = '<div class="search-result-item">Không tìm thấy địa điểm phù hợp trong Phường Trúc Bạch.</div>';
+        }
+        
+      } else {
+          searchResultsContainer.innerHTML = '<div class="search-result-item">Không tìm thấy địa điểm.</div>';
+      }
+  } catch (error) {
+      console.error('Lỗi tìm kiếm địa điểm:', error);
+      map.closePopup();
+      L.popup({
+          className: 'error-leaflet-popup synced-leaflet-popup compact-point-popup',
+          autoClose: true,
+          closeOnClick: true
+      })
+      .setLatLng(map.getCenter())
+      .setContent("<b>Lỗi:</b> Có lỗi xảy ra khi tìm kiếm địa điểm. Vui lòng thử lại.")
+      .openOn(map);
+      searchResultsContainer.innerHTML = '<div class="search-result-item">Lỗi khi tìm kiếm.</div>';
+  }
 });
 
 placeSearchInput.addEventListener('keypress', function(e) {

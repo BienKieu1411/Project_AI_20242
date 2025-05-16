@@ -5,7 +5,7 @@ if (Test-Path ".\requirements.txt") {
 
 Start-Process -NoNewWindow -FilePath py -ArgumentList "app.py"
 
-Start-Sleep 1
+Start-Sleep 0
 function Test-LiveServer {
     try {
         $version = live-server --version
