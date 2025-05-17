@@ -24,7 +24,9 @@ This project is a web-based smart pathfinding application built with Flask (Pyth
 
 ## 🌐 Demo
 
-You can try the **PathFinder** demo online at: [PathFinder](https://bienkieu1411.github.io/Project_AI_20242/)  
+- You can try the **PathFinder** demo Front-end online at: [PathFinder](https://bienkieu1411.github.io/Project_AI_20242/)
+  
+- Video demo **PathFinder** for your reference: [VideoDemo](https://l.messenger.com/l.php?u=https%3A%2F%2Fdrive.google.com%2Fdrive%2Ffolders%2F1VvlOnDW2o1OXrMlPqouaBMz2GRDK2GHV%3Fusp%3Dsharing&h=AT0NkO9MbQzUcS6MGhqPYEA3e1-Xpeig5WMzOEBDqYR4KXcE5ME1iESwFf2EH8iqBtvfwz1MEiKXGf9cw_h12tRITVACCQMvr1DOSA_X90oAZt3uepBkDDOJGnH2M92YWD2JKuL10y1YTqB_Jztezw)
 
 ## 🗂️ Project Structure
 
